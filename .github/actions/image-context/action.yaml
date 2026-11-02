@@ -1,0 +1,42 @@
+name: Export Image Context
+description: Exports every tracked file into `./.cache/image.context`, the only context an image builds from
+
+inputs:
+  dockerfile:
+    description: Dockerfile the image builds from, replaced by the pinned build image's copy when it is the generic one
+    required: true
+
+  arguments:
+    description: Build arguments of the image, one `NAME=value` per line
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Export Tracked Files
+      shell: bash
+      run: |
+        rm -rf ./.cache/image.context
+        mkdir -p ./.cache/image.context
+
+        git ls-files -z --cached --deduplicate \
+          | tar --create --null --files-from=- --ignore-failed-read 2>/dev/null \
+          | tar -x -C ./.cache/image.context
+
+        git ls-files -z \
+          | git check-attr --stdin -z export-ignore \
+          | tr '\0' '\n' \
+          | paste - - - \
+          | awk -F '\t' '$3 == "set" { print $1 }' \
+          >./.cache/image.context/.forge-export-ignored
+
+    - name: Extract Generic Dockerfile
+      if: ${{ inputs.dockerfile == '.cache/forge.cache/docker/app/Dockerfile' }}
+      shell: bash
+      env:
+        ARGUMENTS: ${{ inputs.arguments }}
+        DOCKERFILE: ${{ inputs.dockerfile }}
+      run: |
+        image=$(printf '%s\n' "$ARGUMENTS" | sed -n 's/^FORGE_BUILD_IMAGE=//p')
+
+        docker run --rm --entrypoint cat "${image:?}" /usr/local/share/forge/app.Dockerfile >"$DOCKERFILE"

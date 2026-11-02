@@ -1,0 +1,9 @@
+php_server {
+	import forge-hot-reload
+
+	worker {
+		file {$SERVER_ROOT:./public}/index.php
+
+		{$FORGE_WORKER_CONFIG:watch}
+	}
+}

@@ -1,0 +1,99 @@
+name: Maintenance
+
+on:
+  schedule:
+    - cron: 20 16 * * 2,5
+
+  repository_dispatch:
+    types:
+      - brnshkr-release
+
+  workflow_dispatch: {}
+
+  workflow_call:
+    inputs:
+      runner:
+        description: Runner label for every job, defaults to the `RUNNER_IMAGE` variable
+        required: false
+        type: string
+
+      registry:
+        description: Registry host the images are pushed to
+        required: false
+        type: string
+
+      namespace:
+        description: Registry namespace the images are pushed to, defaults to the repository owner
+        required: false
+        type: string
+
+      skip:
+        description: JSON array of jobs and groups to skip
+        required: false
+        type: string
+
+      scan-images:
+        description: JSON array of published images to scan besides the newest release's
+        required: false
+        type: string
+
+      install-command:
+        description: Command that installs the dependencies, defaults to `make` if a Makefile exists
+        required: false
+        type: string
+
+      semgrep-command:
+        description: Command that runs Semgrep and writes its SARIF report to the path in `SARIF_FILE`
+        required: false
+        type: string
+
+      bump-command:
+        description: >-
+          Command that bumps your repository's other pins, like its dependencies,
+          printing `pin<TAB>from<TAB>to` for each
+        required: false
+        type: string
+
+    secrets:
+      BOT_CLIENT_ID:
+        description: Client ID of the GitHub App the workflows push through
+        required: true
+
+      BOT_PRIVATE_KEY:
+        description: Private key of the GitHub App the workflows push through
+        required: true
+
+concurrency:
+  group: maintenance-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  bump:
+    name: Bump
+    uses: $/.github/workflows/bump.yaml
+    with:
+      runner: ${{ inputs.runner }}
+      skip: ${{ inputs.skip || '[]' }}
+      install-command: ${{ inputs.install-command }}
+      bump-command: ${{ inputs.bump-command || 'make bump -- --format=tsv' }}
+    secrets:
+      BOT_CLIENT_ID: ${{ secrets.BOT_CLIENT_ID }}
+      BOT_PRIVATE_KEY: ${{ secrets.BOT_PRIVATE_KEY }}
+
+  security:
+    name: Security
+    permissions:
+      contents: read
+      security-events: write
+    uses: $/.github/workflows/security.yaml
+    with:
+      runner: ${{ inputs.runner }}
+      registry: ${{ inputs.registry || 'ghcr.io' }}
+      namespace: ${{ inputs.namespace }}
+      skip: ${{ inputs.skip || '[]' }}
+      scan-images: ${{ inputs.scan-images || '[]' }}
+      install-command: ${{ inputs.install-command }}
+      semgrep-command: ${{ inputs.semgrep-command || 'make semgrep -- --sarif-output="$SARIF_FILE"' }}

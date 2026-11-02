@@ -1,0 +1,23 @@
+{
+  "allowlist": {
+    ".github/actions/scan-image/action.yaml": [
+      "!cancelled()"
+    ],
+    ".github/workflows/bump.yaml": [
+      "!cancelled()"
+    ],
+    ".github/workflows/ci.yaml": [
+      "!cancelled()"
+    ],
+    ".github/workflows/publish.yaml": [
+      "!cancelled()"
+    ],
+    ".github/workflows/security.yaml": [
+      "!cancelled()"
+    ],
+    "src/shared/utils/pattern.ts": [
+      "{ analyse }",
+      "analyse({"
+    ]
+  }
+}

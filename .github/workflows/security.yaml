@@ -1,0 +1,260 @@
+name: Security
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: Runner label for every job, defaults to the `RUNNER_IMAGE` variable
+        required: false
+        type: string
+
+      registry:
+        description: Registry host the images are pushed to
+        required: false
+        type: string
+        default: ghcr.io
+
+      namespace:
+        description: Registry namespace the images are pushed to, defaults to the repository owner
+        required: false
+        type: string
+
+      skip:
+        description: JSON array of jobs and groups to skip
+        required: false
+        type: string
+        default: '[]'
+
+      scan-images:
+        description: JSON array of published images to scan besides the newest release's
+        required: false
+        type: string
+        default: '[]'
+
+      install-command:
+        description: Command that installs the dependencies, defaults to `make` if a Makefile exists
+        required: false
+        type: string
+        default: ''
+
+      semgrep-command:
+        description: Command that runs Semgrep and writes its SARIF report to the path in `SARIF_FILE`
+        required: false
+        type: string
+        default: make semgrep -- --sarif-output="$SARIF_FILE"
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    name: Semgrep
+    if: ${{ !contains(fromJSON(inputs.skip), 'semgrep') && !contains(fromJSON(inputs.skip), 'security') }}
+    runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Prepare Dependencies
+        id: prepare
+        uses: $/.github/actions/prepare
+        with:
+          install-command: ${{ inputs.install-command }}
+
+      - name: Scan Sources
+        env:
+          COMMAND: ${{ inputs.semgrep-command }}
+          SARIF_FILE: ./.cache/semgrep.sarif
+        run: sh -c "$COMMAND"
+
+      - name: Save Caches
+        if: ${{ steps.prepare.outputs.cache-hit != 'true' && !github.event.pull_request.head.repo.fork }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ./.cache
+            !./.cache/forge.cache
+          key: ${{ steps.prepare.outputs.cache-primary-key }}
+
+      - name: Report Findings
+        if: ${{ !cancelled() }}
+        uses: $/.github/actions/report-sarif
+        with:
+          file: ./.cache/semgrep.sarif
+          category: semgrep
+          print: false
+
+  gitleaks:
+    name: Gitleaks
+    if: ${{ !contains(fromJSON(inputs.skip), 'gitleaks') && !contains(fromJSON(inputs.skip), 'security') }}
+    runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Toolchain
+        uses: $/.github/actions/setup
+
+      - name: Scan History
+        run: |
+          image=$(. ./.cache/forge.cache/.env && printf '%s' "${GITLEAKS_IMAGE:?}")
+
+          set --
+
+          if [ -f ./conf/gitleaksignore ]; then
+            set -- --gitleaks-ignore-path=/repo/conf/gitleaksignore
+          fi
+
+          mkdir -p ./.cache
+
+          docker run \
+            --rm \
+            --user "$(id -u):$(id -g)" \
+            --volume "$PWD:/repo" \
+            "$image" \
+            git \
+            --redact \
+            "$@" \
+            --report-format sarif \
+            --report-path /repo/.cache/gitleaks.sarif \
+            /repo
+
+      - name: Report Findings
+        if: ${{ !cancelled() }}
+        uses: $/.github/actions/report-sarif
+        with:
+          file: ./.cache/gitleaks.sarif
+          category: gitleaks
+
+  dependencies:
+    name: Dependencies
+    if: ${{ !contains(fromJSON(inputs.skip), 'osv-scanner') && !contains(fromJSON(inputs.skip), 'security') }}
+    runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Toolchain
+        uses: $/.github/actions/setup
+
+      - name: Scan Lockfiles
+        run: |
+          image=$(. ./.cache/forge.cache/.env && printf '%s' "${OSV_SCANNER_IMAGE:?}")
+
+          set --
+
+          if [ -f ./conf/osv-scanner.toml ]; then
+            set -- --config=/src/conf/osv-scanner.toml
+          fi
+
+          mkdir -p ./.cache
+
+          docker run \
+            --rm \
+            --user "$(id -u):$(id -g)" \
+            --volume "$PWD:/src" \
+            "$image" \
+            scan \
+            source \
+            --recursive \
+            "$@" \
+            --format sarif \
+            --output-file /src/.cache/osv-scanner.sarif \
+            /src
+
+      - name: Report Findings
+        if: ${{ !cancelled() }}
+        uses: $/.github/actions/report-sarif
+        with:
+          file: ./.cache/osv-scanner.sarif
+          category: osv-scanner
+
+  scans:
+    name: Resolve Scans
+    runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
+    outputs:
+      images: ${{ steps.scans.outputs.images || '[]' }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Toolchain
+        uses: $/.github/actions/setup
+
+      - name: Check Skipped Jobs
+        env:
+          SKIP: ${{ inputs.skip }}
+        run: bun --bun ./.cache/forge.cache/bin/check-skip.ts --skip="$SKIP"
+
+      - name: Resolve Scans
+        id: scans
+        if: ${{ !contains(fromJSON(inputs.skip), 'trivy') && !contains(fromJSON(inputs.skip), 'security') }}
+        env:
+          NAMESPACE: ${{ inputs.namespace || github.repository_owner }}
+          REGISTRY: ${{ inputs.registry }}
+          SCAN_IMAGES: ${{ inputs.scan-images }}
+        run: |
+          namespace=$(printf '%s' "$NAMESPACE" | tr '[:upper:]' '[:lower:]')
+
+          resolved_images=$(bun --bun ./.cache/forge.cache/bin/resolve-scans.ts \
+            --registry="$REGISTRY" \
+            --namespace="$namespace")
+
+          images=$(printf '%s\n%s\n' "$resolved_images" "$SCAN_IMAGES" | jq --compact-output --slurp 'add | unique')
+
+          echo "images=$images" >>"$GITHUB_OUTPUT"
+
+  images:
+    name: Image ${{ matrix.image }}
+    needs: scans
+    if: ${{ needs.scans.outputs.images != '[]' }}
+    runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.scans.outputs.images) }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Look For Image
+        id: image
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          if docker manifest inspect "$IMAGE" >/dev/null 2>&1; then
+            echo 'is-published=1' >>"$GITHUB_OUTPUT"
+          else
+            echo "\`$IMAGE\` is not published yet, so it was not scanned." >>"$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Scan Image
+        if: ${{ steps.image.outputs.is-published != '' }}
+        uses: $/.github/actions/scan-image
+        with:
+          image: ${{ matrix.image }}
+          category: trivy-${{ matrix.image }}

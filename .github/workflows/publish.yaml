@@ -1,0 +1,1180 @@
+name: Publish
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: Runner label for every job, defaults to the `RUNNER_IMAGE` variable
+        required: false
+        type: string
+
+      registry:
+        description: Registry host the images are pushed to
+        required: false
+        type: string
+        default: ghcr.io
+
+      namespace:
+        description: Registry namespace the images are pushed to, defaults to the repository owner
+        required: false
+        type: string
+
+      skip:
+        description: JSON array of jobs and groups to skip
+        required: false
+        type: string
+        default: '[]'
+
+      deploy-targets:
+        description: JSON array of the targets to deploy to, replacing every stage file that sets `DEPLOY_HOSTS`
+        required: false
+        type: string
+        default: '[]'
+
+      install-command:
+        description: Command that installs the dependencies, defaults to `make` if a Makefile exists
+        required: false
+        type: string
+        default: ''
+
+      build-command:
+        description: Command that builds the npm package, defaults to `make build` if the Makefile has a `build` target
+        required: false
+        type: string
+        default: ''
+
+      changelog-notes-command:
+        description: Command that prints the release notes for `VERSION`, linking `CHANGELOG_URL`
+        required: false
+        type: string
+        default: make --no-print-directory changelog -- --notes CHANGELOG_URL="$CHANGELOG_URL" VERSION="$VERSION"
+
+      changelog-write-command:
+        description: Command that writes the changelog for `VERSION`, linking `CHANGELOG_URL`
+        required: false
+        type: string
+        default: make --no-print-directory changelog -- --write CHANGELOG_URL="$CHANGELOG_URL" VERSION="$VERSION"
+
+      changelog-directory:
+        description: Directory the changelog is written to, defaults to the Makefile's `CHANGELOG_DIR`
+        required: false
+        type: string
+        default: ''
+
+      pages-command:
+        description: Command that builds the GitHub Pages site, defaults to `make pages` if the Makefile has a `pages` target
+        required: false
+        type: string
+        default: ''
+
+      pages-directory:
+        description: Directory the Pages command writes the site to
+        required: false
+        type: string
+        default: ./.cache/pages.cache
+
+    secrets:
+      BOT_CLIENT_ID:
+        description: Client ID of the GitHub App the workflows push through
+        required: true
+
+      BOT_PRIVATE_KEY:
+        description: Private key of the GitHub App the workflows push through
+        required: true
+
+      NPM_CONFIG_TOKEN:
+        description: npm token for a package's first release; remove it afterwards, since later releases fail with it
+        required: false
+
+      PACKAGIST_USERNAME:
+        description: Packagist username
+        required: false
+
+      PACKAGIST_TOKEN:
+        description: Packagist API token
+        required: false
+
+      REGISTRY_USERNAME:
+        description: Registry username, defaults to the user that started the run
+        required: false
+
+      REGISTRY_PASSWORD:
+        description: Registry password or token, defaults to the job's GitHub token
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  targets:
+    name: Resolve Targets
+    runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
+    outputs:
+      buildkit: ${{ steps.buildkit.outputs.image }}
+      deploy: ${{ steps.targets.outputs.deploy }}
+      has-pages: ${{ steps.pages.outputs.has-pages }}
+      images: ${{ steps.targets.outputs.images }}
+      release: ${{ steps.targets.outputs.release }}
+      staging: ${{ steps.targets.outputs.staging }}
+      testing-version: ${{ steps.targets.outputs.testing-version }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Toolchain
+        uses: $/.github/actions/setup
+
+      - name: Resolve Targets
+        id: targets
+        env:
+          DEPLOY_TARGETS: ${{ join(fromJSON(inputs.deploy-targets), ' ') }}
+          NAMESPACE: ${{ inputs.namespace || github.repository_owner }}
+          REGISTRY: ${{ inputs.registry }}
+        run: |
+          namespace=$(printf '%s' "$NAMESPACE" | tr '[:upper:]' '[:lower:]')
+
+          bun --bun ./.cache/forge.cache/bin/resolve-targets.ts \
+            --registry="$REGISTRY" \
+            --namespace="$namespace" \
+            --reference="$GITHUB_REF" \
+            --deploy-targets="$DEPLOY_TARGETS" \
+            >>"$GITHUB_OUTPUT"
+
+          echo "testing-version=dev-$(printf '%.7s' "$GITHUB_SHA")" >>"$GITHUB_OUTPUT"
+
+      - name: Detect Pages
+        id: pages
+        env:
+          COMMAND: ${{ inputs.pages-command }}
+        run: |
+          has_pages=''
+
+          if [ -n "$COMMAND" ] || { [ -f Makefile ] && grep -q '^pages:' Makefile; }; then
+            has_pages=1
+          fi
+
+          echo "has-pages=$has_pages" >>"$GITHUB_OUTPUT"
+
+      - name: Read BuildKit Image
+        id: buildkit
+        run: |
+          image=$(. ./.cache/forge.cache/.env && printf '%s' "${BUILDKIT_IMAGE:?}")
+
+          echo "image=$image" >>"$GITHUB_OUTPUT"
+
+      - name: Check Release
+        if: ${{ fromJSON(steps.targets.outputs.release).version != '' }}
+        env:
+          NPM_CONFIG_TOKEN: ${{ secrets.NPM_CONFIG_TOKEN }}
+          NPM_PACKAGE: ${{ fromJSON(steps.targets.outputs.release).npm }}
+          PACKAGIST_PACKAGE: ${{ fromJSON(steps.targets.outputs.release).packagist }}
+          PACKAGIST_TOKEN: ${{ secrets.PACKAGIST_TOKEN }}
+          PACKAGIST_USERNAME: ${{ secrets.PACKAGIST_USERNAME }}
+          SKIP: ${{ inputs.skip }}
+        run: >-
+          bun --bun ./.cache/forge.cache/bin/check-release.ts
+          --reference="$GITHUB_REF"
+          --npm="$NPM_PACKAGE"
+          --packagist="$PACKAGIST_PACKAGE"
+          --skip="$SKIP"
+
+  image:
+    name: ${{ matrix.name }} ${{ matrix.target }}
+    needs: targets
+    if: >-
+      ${{ needs.targets.outputs.images != '[]'
+        && !contains(fromJSON(inputs.skip), 'images') && !contains(fromJSON(inputs.skip), 'publish') }}
+    runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.targets.outputs.images) }}
+    env:
+      LOCAL_TAG: local/${{ matrix.name }}:${{ matrix.target }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Toolchain
+        uses: $/.github/actions/setup
+
+      - name: Export Image Context
+        uses: $/.github/actions/image-context
+        with:
+          dockerfile: ${{ matrix.dockerfile }}
+          arguments: ${{ matrix.arguments }}
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=${{ needs.targets.outputs.buildkit }}
+
+      - name: Read Image Metadata
+        id: metadata
+        env:
+          DOCKERFILE: ${{ matrix.dockerfile }}
+          NAME: ${{ matrix.name }}
+          TAGS: ${{ matrix.tags }}
+          VERSION: ${{ fromJSON(needs.targets.outputs.release).version }}
+        run: |
+          created=$(git log -1 --format=%cI)
+          first_tag=$(printf '%s\n' "$TAGS" | head -n 1)
+
+          {
+            echo "repository=${first_tag%:*}"
+            echo 'labels<<LABELS'
+            echo "org.opencontainers.image.created=$created"
+            echo "org.opencontainers.image.revision=$GITHUB_SHA"
+
+            if [ -n "$VERSION" ]; then
+              echo "org.opencontainers.image.version=$VERSION"
+            fi
+
+            if [ "$DOCKERFILE" = .cache/forge.cache/docker/app/Dockerfile ]; then
+              echo "org.opencontainers.image.title=$NAME"
+              echo "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+              echo "org.opencontainers.image.url=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+              echo "org.opencontainers.image.vendor=$GITHUB_REPOSITORY_OWNER"
+              echo "org.opencontainers.image.authors=$GITHUB_REPOSITORY_OWNER"
+
+              for manifest in composer.json package.json; do
+                if [ -f "$manifest" ]; then
+                  jq -r '
+                    (.description // empty | "org.opencontainers.image.description=\(.)"),
+                    (.license // empty | if type == "array" then join(" OR ") else . end
+                      | "org.opencontainers.image.licenses=\(.)"),
+                    (.homepage // empty | "org.opencontainers.image.documentation=\(.)")
+                  ' "$manifest"
+
+                  break
+                fi
+              done
+            fi
+
+            echo LABELS
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Build Image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        env:
+          DOCKER_BUILD_CHECKS_ANNOTATIONS: false
+          DOCKER_BUILD_RECORD_UPLOAD: false
+          DOCKER_BUILD_SUMMARY: false
+        with:
+          context: ./.cache/image.context
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          build-args: ${{ matrix.arguments }}
+          load: true
+          tags: ${{ env.LOCAL_TAG }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.name }}-${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}-${{ matrix.target }}
+
+      - name: Verify Image
+        env:
+          DOCKERFILE: ${{ matrix.dockerfile }}
+          NAME: ${{ matrix.name }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          script=$(dirname "$DOCKERFILE")/verify.sh
+
+          if [ -f "$script" ]; then
+            sh "$script" "$LOCAL_TAG" "$NAME" "$TARGET"
+          fi
+
+      - name: Scan Image
+        uses: $/.github/actions/scan-image
+        with:
+          image: ${{ env.LOCAL_TAG }}
+          category: trivy-${{ matrix.name }}-${{ matrix.target }}
+
+  digest:
+    name: Push Digest ${{ matrix.name }} ${{ matrix.target }}
+    needs:
+      - targets
+      - image
+    if: >-
+      ${{ fromJSON(needs.targets.outputs.release).version != ''
+        || (startsWith(github.ref, 'refs/heads/dev/') && fromJSON(needs.targets.outputs.deploy).testing != null
+        && !contains(fromJSON(inputs.skip), 'testing') && !contains(fromJSON(inputs.skip), 'deploy')) }}
+    runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
+    environment: registry
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.targets.outputs.images) }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Toolchain
+        uses: $/.github/actions/setup
+
+      - name: Export Image Context
+        uses: $/.github/actions/image-context
+        with:
+          dockerfile: ${{ matrix.dockerfile }}
+          arguments: ${{ matrix.arguments }}
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=${{ needs.targets.outputs.buildkit }}
+
+      - name: Read Image Metadata
+        id: metadata
+        env:
+          DOCKERFILE: ${{ matrix.dockerfile }}
+          NAME: ${{ matrix.name }}
+          TAGS: ${{ matrix.tags }}
+          VERSION: ${{ fromJSON(needs.targets.outputs.release).version }}
+        run: |
+          created=$(git log -1 --format=%cI)
+          first_tag=$(printf '%s\n' "$TAGS" | head -n 1)
+
+          {
+            echo "repository=${first_tag%:*}"
+            echo 'labels<<LABELS'
+            echo "org.opencontainers.image.created=$created"
+            echo "org.opencontainers.image.revision=$GITHUB_SHA"
+
+            if [ -n "$VERSION" ]; then
+              echo "org.opencontainers.image.version=$VERSION"
+            fi
+
+            if [ "$DOCKERFILE" = .cache/forge.cache/docker/app/Dockerfile ]; then
+              echo "org.opencontainers.image.title=$NAME"
+              echo "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+              echo "org.opencontainers.image.url=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+              echo "org.opencontainers.image.vendor=$GITHUB_REPOSITORY_OWNER"
+              echo "org.opencontainers.image.authors=$GITHUB_REPOSITORY_OWNER"
+
+              for manifest in composer.json package.json; do
+                if [ -f "$manifest" ]; then
+                  jq -r '
+                    (.description // empty | "org.opencontainers.image.description=\(.)"),
+                    (.license // empty | if type == "array" then join(" OR ") else . end
+                      | "org.opencontainers.image.licenses=\(.)"),
+                    (.homepage // empty | "org.opencontainers.image.documentation=\(.)")
+                  ' "$manifest"
+
+                  break
+                fi
+              done
+            fi
+
+            echo LABELS
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Log In To Registry
+        uses: $/.github/actions/login
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          password: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
+
+      - name: Push Image
+        id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        env:
+          DOCKER_BUILD_CHECKS_ANNOTATIONS: false
+          DOCKER_BUILD_RECORD_UPLOAD: false
+          DOCKER_BUILD_SUMMARY: false
+        with:
+          context: ./.cache/image.context
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          build-args: ${{ matrix.arguments }}
+          outputs: >-
+            type=image,name=${{ steps.metadata.outputs.repository }},push-by-digest=true,name-canonical=true,push=true
+          labels: ${{ steps.metadata.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.name }}-${{ matrix.target }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Write Image Digest
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          mkdir -p ./.cache
+          printf '%s' "${DIGEST:?}" >./.cache/image.digest
+
+      - name: Save Image Digest
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ./.cache/image.digest
+          key: image-digest-${{ github.run_id }}-${{ matrix.name }}-${{ matrix.target }}
+
+      - name: Tag Testing Image
+        if: ${{ fromJSON(needs.targets.outputs.release).version == '' }}
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+          REPOSITORY: ${{ steps.metadata.outputs.repository }}
+          VERSION: ${{ needs.targets.outputs.testing-version }}
+        run: docker buildx imagetools create --tag "$REPOSITORY:$VERSION" "$REPOSITORY@$DIGEST"
+
+  testing:
+    name: Testing
+    needs:
+      - targets
+      - digest
+    if: >-
+      ${{ !cancelled() && needs.digest.result == 'success' && fromJSON(needs.targets.outputs.release).version == '' }}
+    uses: $/.github/workflows/deploy.yaml
+    with:
+      runner: ${{ inputs.runner }}
+      target: testing
+      version: ${{ needs.targets.outputs.testing-version }}
+      digest-key: ${{ fromJSON(needs.targets.outputs.deploy).testing.digestKey }}
+      registry: ${{ inputs.registry }}
+      namespace: ${{ inputs.namespace }}
+    secrets:
+      REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+
+  staging:
+    name: Deploy ${{ matrix.target }}
+    needs:
+      - targets
+      - digest
+    if: >-
+      ${{ !cancelled() && needs.digest.result == 'success' && fromJSON(needs.targets.outputs.release).version != ''
+        && fromJSON(needs.targets.outputs.staging)[0] != null
+        && !contains(fromJSON(inputs.skip), 'staging') && !contains(fromJSON(inputs.skip), 'deploy') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.targets.outputs.staging) }}
+    uses: $/.github/workflows/deploy.yaml
+    with:
+      runner: ${{ inputs.runner }}
+      target: ${{ matrix.target }}
+      version: ${{ fromJSON(needs.targets.outputs.release).version }}
+      digest-key: ${{ matrix.digestKey }}
+      registry: ${{ inputs.registry }}
+      namespace: ${{ inputs.namespace }}
+    secrets:
+      REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+
+  package-build:
+    name: npm Package Build
+    needs:
+      - targets
+      - image
+      - staging
+    if: >-
+      ${{ !cancelled() && needs.image.result != 'failure' && needs.staging.result != 'failure'
+        && fromJSON(needs.targets.outputs.release).version != '' && fromJSON(needs.targets.outputs.release).npm != ''
+        && !contains(fromJSON(inputs.skip), 'npm') && !contains(fromJSON(inputs.skip), 'publish') }}
+    runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
+    outputs:
+      is-new: ${{ steps.registry.outputs.is-new }}
+      is-published: ${{ steps.registry.outputs.is-published }}
+      node: ${{ steps.registry.outputs.node }}
+    env:
+      PACKAGE: ${{ fromJSON(needs.targets.outputs.release).npm }}
+      VERSION: ${{ fromJSON(needs.targets.outputs.release).version }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Toolchain
+        uses: $/.github/actions/setup
+
+      - name: Check Registry
+        id: registry
+        run: |
+          is_published=''
+          is_new=''
+          node=$(. ./.cache/forge.cache/.env && printf '%s' "${NODE_VERSION:?}")
+
+          if curl --silent --fail --output /dev/null "https://registry.npmjs.org/$PACKAGE/$VERSION"; then
+            is_published=1
+          elif ! curl --silent --fail --output /dev/null "https://registry.npmjs.org/$PACKAGE"; then
+            is_new=1
+          fi
+
+          {
+            echo "is-published=$is_published"
+            echo "is-new=$is_new"
+            echo "node=$node"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Prepare Dependencies
+        if: ${{ steps.registry.outputs.is-published == '' }}
+        uses: $/.github/actions/prepare
+        with:
+          install-command: ${{ inputs.install-command }}
+
+      - name: Build Package
+        if: ${{ steps.registry.outputs.is-published == '' }}
+        env:
+          COMMAND: ${{ inputs.build-command }}
+          DIRECTORY: ${{ inputs.changelog-directory }}
+        run: |
+          bun pm pkg set version="$VERSION"
+
+          if [ -n "$COMMAND" ]; then
+            sh -c "$COMMAND"
+          elif [ -f Makefile ] && grep -q '^build:' Makefile; then
+            make build
+          fi
+
+          directory=$DIRECTORY
+
+          if [ -z "$directory" ] && [ -f Makefile ]; then
+            directory=$(make -s --no-print-directory --eval "directory: ; @echo \$(CHANGELOG_DIR)" directory)
+          fi
+
+          if [ -n "$directory" ] && [ -d "$directory" ]; then
+            rm -r -- "${directory:?}"
+          fi
+
+          bun pm pack --filename "$RUNNER_TEMP/package.tgz"
+
+      - name: Upload Package
+        if: ${{ steps.registry.outputs.is-published == '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: package
+          path: ${{ runner.temp }}/package.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+  package:
+    name: npm Package
+    needs:
+      - targets
+      - package-build
+    if: >-
+      ${{ !cancelled() && needs.package-build.result == 'success'
+        && needs.package-build.outputs.is-published == '' }}
+    runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
+    environment: registry
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Setup Toolchain
+        uses: $/.github/actions/setup
+
+      - name: Download Package
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: package
+          path: ${{ runner.temp }}
+
+      - name: Setup Node
+        if: ${{ needs.package-build.outputs.is-new == '' }}
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ needs.package-build.outputs.node }}
+          package-manager-cache: false
+
+      - name: Publish Package
+        env:
+          DISTRIBUTION_TAG: ${{ fromJSON(needs.targets.outputs.release).distributionTag }}
+          NPM_CONFIG_TOKEN: ${{ secrets.NPM_CONFIG_TOKEN }}
+          PACKAGE: ${{ fromJSON(needs.targets.outputs.release).npm }}
+          VERSION: ${{ fromJSON(needs.targets.outputs.release).version }}
+        run: >-
+          bun --bun ./.cache/forge.cache/bin/publish-npm.ts
+          --tarball="$RUNNER_TEMP/package.tgz"
+          --name="$PACKAGE"
+          --version="$VERSION"
+          --distribution-tag="$DISTRIBUTION_TAG"
+
+  push:
+    name: Push ${{ matrix.name }} ${{ matrix.target }}
+    needs:
+      - targets
+      - package-build
+      - package
+      - digest
+      - staging
+    if: >-
+      ${{ !cancelled() && needs.digest.result == 'success' && needs.package-build.result != 'failure'
+        && needs.package.result != 'failure' && needs.staging.result != 'failure'
+        && fromJSON(needs.targets.outputs.release).version != '' }}
+    runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
+    environment: registry
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.targets.outputs.images) }}
+    steps:
+      - name: Restore Image Digest
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ./.cache/image.digest
+          key: image-digest-${{ github.run_id }}-${{ matrix.name }}-${{ matrix.target }}
+          fail-on-cache-miss: true
+
+      - name: Read Image Digest
+        id: digest
+        env:
+          TAGS: ${{ matrix.tags }}
+        run: |
+          digest=$(cat ./.cache/image.digest)
+          first_tag=$(printf '%s\n' "$TAGS" | head -n 1)
+
+          {
+            echo "digest=$digest"
+            echo "repository=${first_tag%:*}"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Log In To Registry
+        uses: $/.github/actions/login
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          password: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
+
+      - name: Tag Image
+        env:
+          DIGEST: ${{ steps.digest.outputs.digest }}
+          REPOSITORY: ${{ steps.digest.outputs.repository }}
+          TAGS: ${{ matrix.tags }}
+        run: |
+          set --
+
+          for tag in $TAGS; do
+            set -- "$@" --tag "$tag"
+          done
+
+          docker buildx imagetools create "$@" "$REPOSITORY@$DIGEST"
+
+      - name: Record What Was Published
+        env:
+          DIGEST: ${{ steps.digest.outputs.digest }}
+          NAME: ${{ matrix.name }}
+          TAGS: ${{ matrix.tags }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          {
+            echo "## 📦 Published $NAME $TARGET"
+            echo
+            echo '| Tag | Digest |'
+            echo '| --- | --- |'
+            digest="\`$DIGEST\`"
+
+            printf '%s\n' "$TAGS" | while read -r tag; do
+              echo "| \`$tag\` | $digest |"
+              digest='〃'
+            done
+          } >>"$GITHUB_STEP_SUMMARY"
+
+  fragments:
+    name: Compose Fragments
+    needs:
+      - targets
+      - image
+      - package-build
+      - package
+      - staging
+    if: >-
+      ${{ !cancelled() && needs.image.result != 'failure' && needs.package-build.result != 'failure'
+        && needs.package.result != 'failure' && needs.staging.result != 'failure'
+        && fromJSON(needs.targets.outputs.release).version != ''
+        && !contains(fromJSON(inputs.skip), 'fragments') && !contains(fromJSON(inputs.skip), 'publish') }}
+    runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
+    environment: registry
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Log In To Registry
+        uses: $/.github/actions/login
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          password: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
+
+      # NOTICE: `compose publish` interpolates, so every variable needs a placeholder of its shape
+      - name: Publish Fragments
+        env:
+          FRAGMENTS: ${{ fromJSON(needs.targets.outputs.release).fragments }}
+          NAMESPACE: ${{ inputs.namespace || github.repository_owner }}
+          REGISTRY: ${{ inputs.registry }}
+          REPOSITORY_NAME: ${{ github.event.repository.name }}
+          TAGS: ${{ fromJSON(needs.targets.outputs.release).gitTags }}
+        run: |
+          placeholders="$RUNNER_TEMP/placeholders.env"
+          repository=$(printf '%s/%s' "$NAMESPACE" "$REPOSITORY_NAME" | tr '[:upper:]' '[:lower:]')
+
+          for file in $FRAGMENTS; do
+            grep -o '[$]{[A-Z][A-Z0-9_]*' "$file" | cut -c 3- | sort -u | while read -r variable; do
+              case "$variable" in
+                *_DIR)
+                  printf '%s=/placeholder\n' "$variable"
+                ;;
+
+                *_IP)
+                  printf '%s=127.0.0.1\n' "$variable"
+                ;;
+
+                *)
+                  printf '%s=8080\n' "$variable"
+                ;;
+              esac
+            done >"$placeholders"
+
+            for tag in $TAGS; do
+              docker compose --env-file "$placeholders" -f "$file" publish --yes \
+                "$REGISTRY/$repository/compose/$(basename "$file" .yaml):${tag#v}"
+            done
+          done
+
+  changelog-draft:
+    name: Changelog Draft
+    needs:
+      - targets
+      - image
+      - digest
+      - staging
+      - package-build
+      - package
+      - push
+      - fragments
+    if: >-
+      ${{ !cancelled() && !contains(needs.*.result, 'failure')
+        && fromJSON(needs.targets.outputs.release).version != ''
+        && !contains(fromJSON(inputs.skip), 'changelog') && !contains(fromJSON(inputs.skip), 'publish') }}
+    runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
+    outputs:
+      commit: ${{ steps.changelog.outputs.commit }}
+      directory: ${{ steps.changelog.outputs.directory }}
+      has-changes: ${{ steps.changelog.outputs.has-changes }}
+      notes: ${{ steps.changelog.outputs.notes }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Toolchain
+        uses: $/.github/actions/setup
+
+      - name: Prepare Dependencies
+        uses: $/.github/actions/prepare
+        with:
+          install-command: ${{ inputs.install-command }}
+
+      - name: Write Changelog
+        id: changelog
+        env:
+          CHANGELOG_URL: ${{ github.server_url }}/${{ github.repository }}
+          DIRECTORY: ${{ inputs.changelog-directory }}
+          NOTES_COMMAND: ${{ inputs.changelog-notes-command }}
+          VERSION: ${{ fromJSON(needs.targets.outputs.release).version }}
+          WRITE_COMMAND: ${{ inputs.changelog-write-command }}
+        run: |
+          directory=$DIRECTORY
+          notes=$(sh -c "$NOTES_COMMAND")
+
+          sh -c "$WRITE_COMMAND"
+
+          if [ -z "$directory" ]; then
+            directory=$(make -s --no-print-directory --eval "directory: ; @echo \$(CHANGELOG_DIR)" directory)
+          fi
+
+          if [ -d "$directory" ]; then
+            git add -- "$directory"
+          fi
+
+          {
+            echo "commit=$(git rev-parse HEAD)"
+            echo "directory=$(realpath --canonicalize-missing --relative-to=. "$directory")"
+
+            if ! git diff --cached --quiet; then
+              git diff --cached --binary >"$RUNNER_TEMP/changelog.patch"
+              echo 'has-changes=1'
+            fi
+
+            echo 'notes<<NOTES'
+            echo "$notes"
+            echo NOTES
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Upload Changelog
+        if: ${{ steps.changelog.outputs.has-changes != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: changelog
+          path: ${{ runner.temp }}/changelog.patch
+          if-no-files-found: error
+          retention-days: 1
+
+  changelog:
+    name: Changelog
+    needs: changelog-draft
+    if: ${{ !cancelled() && needs.changelog-draft.result == 'success' }}
+    runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
+    outputs:
+      commit: ${{ steps.commit.outputs.commit || needs.changelog-draft.outputs.commit }}
+      directory: ${{ needs.changelog-draft.outputs.directory }}
+      notes: ${{ needs.changelog-draft.outputs.notes }}
+    steps:
+      - name: Checkout Repository
+        if: ${{ needs.changelog-draft.outputs.has-changes != '' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.changelog-draft.outputs.commit }}
+          persist-credentials: false
+
+      - name: Setup Toolchain
+        if: ${{ needs.changelog-draft.outputs.has-changes != '' }}
+        uses: $/.github/actions/setup
+
+      - name: Download Changelog
+        if: ${{ needs.changelog-draft.outputs.has-changes != '' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: changelog
+          path: ${{ runner.temp }}
+
+      - name: Act As Bot
+        id: bot
+        if: ${{ needs.changelog-draft.outputs.has-changes != '' }}
+        uses: $/.github/actions/bot
+        with:
+          client-id: ${{ secrets.BOT_CLIENT_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
+          permission-contents: write
+
+      - name: Commit Changelog
+        id: commit
+        if: ${{ needs.changelog-draft.outputs.has-changes != '' }}
+        env:
+          GITHUB_TOKEN: ${{ steps.bot.outputs.token }}
+        run: |
+          git apply --index "$RUNNER_TEMP/changelog.patch"
+
+          commit=$(bun --bun ./.cache/forge.cache/bin/commit-changes.ts \
+            --branch="$GITHUB_REF_NAME" \
+            --message='chore(release): write changelog [skip ci]')
+
+          echo "commit=$commit" >>"$GITHUB_OUTPUT"
+
+  tag:
+    name: Tag Release
+    needs:
+      - targets
+      - image
+      - digest
+      - staging
+      - package-build
+      - package
+      - push
+      - fragments
+      - changelog-draft
+      - changelog
+    if: >-
+      ${{ !cancelled() && !contains(needs.*.result, 'failure')
+        && fromJSON(needs.targets.outputs.release).version != '' && !contains(fromJSON(inputs.skip), 'publish') }}
+    runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.changelog.outputs.commit || github.sha }}
+          persist-credentials: false
+
+      - name: Setup Toolchain
+        uses: $/.github/actions/setup
+
+      - name: Act As Bot
+        id: bot
+        uses: $/.github/actions/bot
+        with:
+          client-id: ${{ secrets.BOT_CLIENT_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
+          permission-contents: write
+
+      - name: Push Git Tags
+        env:
+          COMMIT: ${{ needs.changelog.outputs.commit || github.sha }}
+          GITHUB_TOKEN: ${{ steps.bot.outputs.token }}
+          TAGS: ${{ fromJSON(needs.targets.outputs.release).gitTags }}
+        run: |
+          remote="https://x-access-token:$GITHUB_TOKEN@${GITHUB_SERVER_URL#https://}/$GITHUB_REPOSITORY.git"
+
+          REMOTE="$remote" bun --bun ./.cache/forge.cache/bin/push-tags.ts --commit="$COMMIT" --tags="$TAGS"
+
+  release:
+    name: GitHub Release
+    needs:
+      - targets
+      - changelog
+      - tag
+    if: >-
+      ${{ !cancelled() && needs.tag.result == 'success'
+        && !contains(fromJSON(inputs.skip), 'release') && !contains(fromJSON(inputs.skip), 'publish') }}
+    runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: v${{ fromJSON(needs.targets.outputs.release).version }}
+          persist-credentials: false
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IS_PRERELEASE: ${{ fromJSON(needs.targets.outputs.release).isPrerelease }}
+          NOTES: ${{ needs.changelog.outputs.notes }}
+          VERSION: ${{ fromJSON(needs.targets.outputs.release).version }}
+        run: |
+          if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            exit 0
+          fi
+
+          if [ "$IS_PRERELEASE" = true ]; then
+            set -- --prerelease
+          fi
+
+          gh release create "v$VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "v$VERSION" \
+            --notes "${NOTES:-No release notes.}" \
+            "$@"
+
+      - name: Attach Packages
+        env:
+          CHANGELOG_DIRECTORY: ${{ needs.changelog.outputs.directory }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_PACKAGE: ${{ !contains(fromJSON(inputs.skip), 'npm') && fromJSON(needs.targets.outputs.release).npm || '' }}
+          PACKAGIST_PACKAGE: ${{ fromJSON(needs.targets.outputs.release).packagist }}
+          VERSION: ${{ fromJSON(needs.targets.outputs.release).version }}
+        run: |
+          mkdir "$RUNNER_TEMP/packages"
+
+          if [ -n "$NPM_PACKAGE" ]; then
+            metadata=$(curl --silent --fail "https://registry.npmjs.org/$NPM_PACKAGE/$VERSION")
+            tarball=$(printf '%s' "$metadata" | jq --raw-output .dist.tarball)
+            name=$(printf '%s' "${NPM_PACKAGE#@}" | tr / -)
+
+            curl --silent --fail --location --output "$RUNNER_TEMP/packages/$name-$VERSION.tgz" "$tarball"
+          fi
+
+          if [ -n "$PACKAGIST_PACKAGE" ]; then
+            name=$(printf '%s' "$PACKAGIST_PACKAGE" | tr / -)
+
+            git archive --format=zip --output "$RUNNER_TEMP/packages/$name-$VERSION.zip" HEAD \
+              -- . ${CHANGELOG_DIRECTORY:+":(exclude)$CHANGELOG_DIRECTORY"}
+          fi
+
+          if [ -n "$(ls "$RUNNER_TEMP/packages")" ]; then
+            gh release upload "v$VERSION" "$RUNNER_TEMP"/packages/* --repo "$GITHUB_REPOSITORY" --clobber
+          fi
+
+  merge:
+    name: Merge Back
+    needs:
+      - targets
+      - tag
+      - release
+    if: >-
+      ${{ !cancelled() && needs.tag.result == 'success' && needs.release.result != 'failure'
+        && !contains(fromJSON(inputs.skip), 'merge') && !contains(fromJSON(inputs.skip), 'publish') }}
+    runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: v${{ fromJSON(needs.targets.outputs.release).version }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Toolchain
+        uses: $/.github/actions/setup
+
+      - name: Act As Bot
+        id: bot
+        uses: $/.github/actions/bot
+        with:
+          client-id: ${{ secrets.BOT_CLIENT_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
+          permission-contents: write
+          permission-workflows: write
+
+      - name: Merge Back
+        env:
+          GITHUB_TOKEN: ${{ steps.bot.outputs.token }}
+          TARGETS: ${{ fromJSON(needs.targets.outputs.release).mergeTargets }}
+          VERSION: ${{ fromJSON(needs.targets.outputs.release).version }}
+        run: |
+          remote="https://x-access-token:$GITHUB_TOKEN@${GITHUB_SERVER_URL#https://}/$GITHUB_REPOSITORY.git"
+
+          REMOTE="$remote" bun --bun ./.cache/forge.cache/bin/merge-back.ts \
+            --version="$VERSION" \
+            --release-branch="$GITHUB_REF_NAME" \
+            --targets="$TARGETS" \
+            >>"$GITHUB_STEP_SUMMARY"
+
+  packagist:
+    name: Packagist
+    needs:
+      - targets
+      - tag
+      - release
+      - merge
+    if: >-
+      ${{ !cancelled() && needs.tag.result == 'success' && needs.release.result != 'failure'
+        && fromJSON(needs.targets.outputs.release).packagist != ''
+        && !contains(fromJSON(inputs.skip), 'packagist') && !contains(fromJSON(inputs.skip), 'publish') }}
+    runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
+    environment: registry
+    steps:
+      - name: Setup Toolchain
+        uses: $/.github/actions/setup
+
+      - name: Notify Packagist
+        env:
+          PACKAGE: ${{ fromJSON(needs.targets.outputs.release).packagist }}
+          PACKAGIST_TOKEN: ${{ secrets.PACKAGIST_TOKEN }}
+          PACKAGIST_USERNAME: ${{ secrets.PACKAGIST_USERNAME }}
+        run: >-
+          bun --bun ./.cache/forge.cache/bin/notify-packagist.ts
+          --name="$PACKAGE"
+          --repository-url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+
+  dispatch:
+    name: Notify Repositories
+    needs:
+      - targets
+      - tag
+      - release
+      - merge
+      - packagist
+    if: >-
+      ${{ !cancelled() && needs.tag.result == 'success' && needs.release.result != 'failure'
+        && needs.packagist.result != 'failure'
+        && !contains(fromJSON(inputs.skip), 'dispatch') && !contains(fromJSON(inputs.skip), 'publish') }}
+    runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
+    steps:
+      - name: Act As Bot
+        id: bot
+        uses: $/.github/actions/bot
+        with:
+          client-id: ${{ secrets.BOT_CLIENT_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: write
+
+      - name: Dispatch Release
+        env:
+          GITHUB_TOKEN: ${{ steps.bot.outputs.token }}
+          VERSION: ${{ fromJSON(needs.targets.outputs.release).version }}
+        run: |
+          repositories=$(gh api --paginate /installation/repositories --jq '.repositories[].full_name')
+
+          for repository in $repositories; do
+            if [ "$repository" = "$GITHUB_REPOSITORY" ]; then
+              continue
+            fi
+
+            gh api --method POST "/repos/$repository/dispatches" \
+              --field event_type=brnshkr-release \
+              --field "client_payload[repository]=$GITHUB_REPOSITORY" \
+              --field "client_payload[version]=$VERSION" \
+              >/dev/null
+          done
+
+  production:
+    name: Production
+    needs:
+      - targets
+      - tag
+      - release
+    if: >-
+      ${{ !cancelled() && needs.tag.result == 'success' && needs.release.result != 'failure'
+        && fromJSON(needs.targets.outputs.deploy).production != null
+        && !contains(fromJSON(inputs.skip), 'production') && !contains(fromJSON(inputs.skip), 'deploy') }}
+    uses: $/.github/workflows/deploy.yaml
+    with:
+      runner: ${{ inputs.runner }}
+      target: production
+      version: ${{ fromJSON(needs.targets.outputs.release).version }}
+      registry: ${{ inputs.registry }}
+      namespace: ${{ inputs.namespace }}
+    secrets:
+      REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+
+  pages:
+    name: GitHub Pages
+    needs:
+      - targets
+      - tag
+      - release
+    if: >-
+      ${{ !cancelled() && needs.tag.result == 'success' && needs.release.result != 'failure'
+        && needs.targets.outputs.has-pages == '1'
+        && !contains(fromJSON(inputs.skip), 'pages') && !contains(fromJSON(inputs.skip), 'publish') }}
+    runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    permissions:
+      contents: read
+      id-token: write
+      pages: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: v${{ fromJSON(needs.targets.outputs.release).version }}
+          persist-credentials: false
+
+      - name: Setup Toolchain
+        uses: $/.github/actions/setup
+
+      - name: Prepare Dependencies
+        uses: $/.github/actions/prepare
+        with:
+          install-command: ${{ inputs.install-command }}
+
+      - name: Build Pages
+        env:
+          COMMAND: ${{ inputs.pages-command || 'make pages' }}
+        run: sh -c "$COMMAND"
+
+      - name: Upload Pages
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: ${{ inputs.pages-directory }}
+
+      - name: Deploy Pages
+        id: deploy
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

@@ -1,0 +1,3 @@
+(forge-mercure) {
+	reverse_proxy /.well-known/mercure* {$FORGE_MERCURE_UPSTREAM:mercure:80}
+}

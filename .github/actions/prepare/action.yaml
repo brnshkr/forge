@@ -1,0 +1,41 @@
+name: Prepare Dependencies
+description: Restores the `./.cache` directory and installs the dependencies
+
+inputs:
+  install-command:
+    description: Command that installs the dependencies, defaults to `make` if a Makefile exists
+    required: false
+    default: ''
+
+outputs:
+  cache-hit:
+    description: Whether the cache was restored from its exact key
+    value: ${{ steps.cache.outputs.cache-hit }}
+
+  cache-primary-key:
+    description: Key the cache is saved under
+    value: ${{ steps.cache.outputs.cache-primary-key }}
+
+runs:
+  using: composite
+  steps:
+    - name: Restore Caches
+      id: cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ./.cache
+          !./.cache/forge.cache
+        key: make-${{ runner.os }}-${{ hashFiles('bun.lock', 'composer.lock') }}
+        restore-keys: make-${{ runner.os }}-
+
+    - name: Install Dependencies
+      shell: bash
+      env:
+        COMMAND: ${{ inputs.install-command }}
+      run: |
+        if [ -n "$COMMAND" ]; then
+          sh -c "$COMMAND"
+        elif [ -f Makefile ]; then
+          make
+        fi

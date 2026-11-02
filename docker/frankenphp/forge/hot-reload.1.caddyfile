@@ -1,0 +1,9 @@
+(forge-hot-reload) {
+	hot_reload {
+		topic forge/hot-reload
+	}
+}
+
+(forge-hot-reload-mercure) {
+	anonymous
+}

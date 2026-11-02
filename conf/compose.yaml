@@ -1,0 +1,47 @@
+name: ${COMPOSE_PROJECT_NAME:?}
+
+include:
+  - path: ../compose/node.yaml
+  - path: ../compose/semgrep.yaml
+
+services:
+  cli:
+    extends:
+      file: ../compose/cli.yaml
+      service: cli
+    build:
+      context: ..
+      dockerfile: ./docker/${IMAGE_NAME:?}.Dockerfile
+      target: ${IMAGE_TARGET:?}
+      args:
+        - ACTIONLINT_CHECKSUM
+        - ACTIONLINT_VERSION
+        - APT_PACKAGES
+        - BUN_DIGEST
+        - BUN_VERSION
+        - COMPOSER_VERSION
+        - DEBIAN_SUITE
+        - DEV_APT_PACKAGES
+        - DEV_PHP_EXTENSIONS
+        - EXTRA_APT_PACKAGES
+        - EXTRA_PHP_EXTENSIONS
+        - FRANKENPHP_DIGEST
+        - FRANKENPHP_VERSION
+        - HADOLINT_CHECKSUM
+        - HADOLINT_VERSION
+        - PHP_DIGEST
+        - PHP_EXTENSIONS
+        - PHP_EXTENSION_INSTALLER_DIGEST
+        - PHP_EXTENSION_INSTALLER_VERSION
+        - PHP_MINOR
+        - PHP_VERSION
+        - RUNTIME_USER_GID
+        - RUNTIME_USER_UID
+        - SHELLCHECK_CHECKSUM
+        - SHELLCHECK_VERSION
+        - USER_GID
+        - USER_NAME
+        - USER_UID
+
+volumes:
+  forge-home: ~

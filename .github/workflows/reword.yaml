@@ -1,0 +1,77 @@
+name: Reword
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: Runner label for every job, defaults to the `RUNNER_IMAGE` variable
+        required: false
+        type: string
+
+      skip:
+        description: JSON array of jobs and groups to skip
+        required: false
+        type: string
+        default: '[]'
+
+    secrets:
+      BOT_CLIENT_ID:
+        description: Client ID of the GitHub App the workflows push through
+        required: true
+
+      BOT_PRIVATE_KEY:
+        description: Private key of the GitHub App the workflows push through
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  reword:
+    name: Reword Dependabot Commits
+    if: >-
+      ${{ github.event.pull_request.user.login == 'dependabot[bot]'
+        && !contains(fromJSON(inputs.skip), 'reword')
+        && !contains(fromJSON(inputs.skip), 'review') }}
+    runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Act As Bot
+        id: bot
+        uses: $/.github/actions/bot
+        with:
+          client-id: ${{ secrets.BOT_CLIENT_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
+          permission-contents: write
+          permission-workflows: write
+
+      - name: Reword Commits
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          GITHUB_TOKEN: ${{ steps.bot.outputs.token }}
+        run: |
+          first_commit=$(git rev-list --reverse "$BASE..HEAD" | head -n 1)
+
+          if [ "$(git rev-list --count "$BASE..HEAD")" = 1 ] \
+            && [ -z "$(git log -1 --format=%b)" ] \
+            && [ "$(git log -1 --format=%ae)" = "$(git config user.email)" ]; then
+            exit 0
+          fi
+
+          subject=$(git log -1 --format=%s "$first_commit")
+          tree=$(git rev-parse 'HEAD^{tree}')
+
+          commit=$(gh api "repos/$GITHUB_REPOSITORY/git/commits" \
+            -f "message=$subject" \
+            -f "tree=$tree" \
+            -f "parents[]=$BASE" \
+            --jq .sha)
+
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/heads/$BRANCH" -f "sha=$commit" -F force=true >/dev/null

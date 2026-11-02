@@ -1,0 +1,198 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - dev/*
+      - release/*
+
+  pull_request:
+    branches:
+      - dev/*
+      - release/*
+
+  workflow_dispatch: {}
+
+  workflow_call:
+    inputs:
+      runner:
+        description: Runner label for every job, defaults to the `RUNNER_IMAGE` variable
+        required: false
+        type: string
+
+      registry:
+        description: Registry host the images are pushed to
+        required: false
+        type: string
+
+      namespace:
+        description: Registry namespace the images are pushed to, defaults to the repository owner
+        required: false
+        type: string
+
+      skip:
+        description: JSON array of jobs and groups to skip
+        required: false
+        type: string
+
+      deploy-targets:
+        description: JSON array of the targets to deploy to, replacing every stage file that sets `DEPLOY_HOSTS`
+        required: false
+        type: string
+
+      matrix-max-parallel:
+        description: Maximum number of `TEST_MATRIX` rows running at once
+        required: false
+        type: number
+
+      install-command:
+        description: Command that installs the dependencies, defaults to `make` if a Makefile exists
+        required: false
+        type: string
+
+      check-command:
+        description: Command that fixes and checks the repository
+        required: false
+        type: string
+
+      matrix-rows-command:
+        description: Command that prints the `TEST_MATRIX` rows as a JSON array
+        required: false
+        type: string
+
+      matrix-command:
+        description: Command that runs one `TEST_MATRIX` row, which `ROW` holds
+        required: false
+        type: string
+
+      build-command:
+        description: Command that builds the npm package, defaults to `make build` if the Makefile has a `build` target
+        required: false
+        type: string
+
+      changelog-notes-command:
+        description: Command that prints the release notes for `VERSION`, linking `CHANGELOG_URL`
+        required: false
+        type: string
+
+      changelog-write-command:
+        description: Command that writes the changelog for `VERSION`, linking `CHANGELOG_URL`
+        required: false
+        type: string
+
+      changelog-directory:
+        description: Directory the changelog is written to, defaults to the Makefile's `CHANGELOG_DIR`
+        required: false
+        type: string
+
+      pages-command:
+        description: Command that builds the GitHub Pages site, defaults to `make pages` if the Makefile has a `pages` target
+        required: false
+        type: string
+
+      pages-directory:
+        description: Directory the Pages command writes the site to
+        required: false
+        type: string
+
+    secrets:
+      BOT_CLIENT_ID:
+        description: Client ID of the GitHub App the workflows push through
+        required: true
+
+      BOT_PRIVATE_KEY:
+        description: Private key of the GitHub App the workflows push through
+        required: true
+
+      NPM_CONFIG_TOKEN:
+        description: npm token for a package's first release; remove it afterwards, since later releases fail with it
+        required: false
+
+      PACKAGIST_USERNAME:
+        description: Packagist username
+        required: false
+
+      PACKAGIST_TOKEN:
+        description: Packagist API token
+        required: false
+
+      REGISTRY_USERNAME:
+        description: Registry username, defaults to the user that started the run
+        required: false
+
+      REGISTRY_PASSWORD:
+        description: Registry password or token, defaults to the job's GitHub token
+        required: false
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/heads/release/') }}
+
+permissions:
+  contents: read
+
+jobs:
+  reword:
+    name: Reword
+    if: ${{ github.event_name == 'pull_request' }}
+    uses: $/.github/workflows/reword.yaml
+    with:
+      runner: ${{ inputs.runner }}
+      skip: ${{ inputs.skip || '[]' }}
+    secrets:
+      BOT_CLIENT_ID: ${{ secrets.BOT_CLIENT_ID }}
+      BOT_PRIVATE_KEY: ${{ secrets.BOT_PRIVATE_KEY }}
+
+  check:
+    name: Check
+    needs: reword
+    if: ${{ !cancelled() && needs.reword.result != 'failure' }}
+    uses: $/.github/workflows/check.yaml
+    with:
+      runner: ${{ inputs.runner }}
+      skip: ${{ inputs.skip || '[]' }}
+      matrix-max-parallel: ${{ inputs.matrix-max-parallel || 10 }}
+      install-command: ${{ inputs.install-command }}
+      check-command: ${{ inputs.check-command || 'make ci TEST_MATRIX=' }}
+      matrix-rows-command: ${{ inputs.matrix-rows-command || 'make -s test-matrix-rows' }}
+      matrix-command: ${{ inputs.matrix-command || 'make test-matrix -- "$ROW"' }}
+    secrets:
+      BOT_CLIENT_ID: ${{ secrets.BOT_CLIENT_ID }}
+      BOT_PRIVATE_KEY: ${{ secrets.BOT_PRIVATE_KEY }}
+
+  publish:
+    name: Publish
+    needs: check
+    if: ${{ !cancelled() && needs.check.result == 'success' }}
+    permissions:
+      contents: write
+      id-token: write
+      packages: write
+      pages: write
+      security-events: write
+    uses: $/.github/workflows/publish.yaml
+    with:
+      runner: ${{ inputs.runner }}
+      registry: ${{ inputs.registry || 'ghcr.io' }}
+      namespace: ${{ inputs.namespace }}
+      skip: ${{ inputs.skip || '[]' }}
+      deploy-targets: ${{ inputs.deploy-targets || '[]' }}
+      install-command: ${{ inputs.install-command }}
+      build-command: ${{ inputs.build-command }}
+      changelog-notes-command: >-
+        ${{ inputs.changelog-notes-command
+          || 'make --no-print-directory changelog -- --notes CHANGELOG_URL="$CHANGELOG_URL" VERSION="$VERSION"' }}
+      changelog-write-command: >-
+        ${{ inputs.changelog-write-command
+          || 'make --no-print-directory changelog -- --write CHANGELOG_URL="$CHANGELOG_URL" VERSION="$VERSION"' }}
+      changelog-directory: ${{ inputs.changelog-directory }}
+      pages-command: ${{ inputs.pages-command }}
+      pages-directory: ${{ inputs.pages-directory || './.cache/pages.cache' }}
+    secrets:
+      BOT_CLIENT_ID: ${{ secrets.BOT_CLIENT_ID }}
+      BOT_PRIVATE_KEY: ${{ secrets.BOT_PRIVATE_KEY }}
+      NPM_CONFIG_TOKEN: ${{ secrets.NPM_CONFIG_TOKEN }}
+      PACKAGIST_TOKEN: ${{ secrets.PACKAGIST_TOKEN }}
+      PACKAGIST_USERNAME: ${{ secrets.PACKAGIST_USERNAME }}
+      REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}

@@ -1,0 +1,246 @@
+name: Check
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: Runner label for every job, defaults to the `RUNNER_IMAGE` variable
+        required: false
+        type: string
+
+      skip:
+        description: JSON array of jobs and groups to skip
+        required: false
+        type: string
+        default: '[]'
+
+      matrix-max-parallel:
+        description: Maximum number of `TEST_MATRIX` rows running at once
+        required: false
+        type: number
+        default: 10
+
+      install-command:
+        description: Command that installs the dependencies, defaults to `make` if a Makefile exists
+        required: false
+        type: string
+        default: ''
+
+      check-command:
+        description: Command that fixes and checks the repository
+        required: false
+        type: string
+        default: make ci TEST_MATRIX=
+
+      matrix-rows-command:
+        description: Command that prints the `TEST_MATRIX` rows as a JSON array
+        required: false
+        type: string
+        default: make -s test-matrix-rows
+
+      matrix-command:
+        description: Command that runs one `TEST_MATRIX` row, which `ROW` holds
+        required: false
+        type: string
+        default: make test-matrix -- "$ROW"
+
+    secrets:
+      BOT_CLIENT_ID:
+        description: Client ID of the GitHub App the workflows push through
+        required: false
+
+      BOT_PRIVATE_KEY:
+        description: Private key of the GitHub App the workflows push through
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check
+    runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
+    outputs:
+      commit: ${{ steps.fixes.outputs.commit }}
+      has-fixes: ${{ steps.fixes.outputs.has-changes }}
+      rows: ${{ steps.rows.outputs.rows || '[]' }}
+    steps:
+      - name: Check Release Source
+        if: ${{ startsWith(github.base_ref, 'release/') }}
+        run: |
+          case $GITHUB_HEAD_REF in
+            dev/* | hotfix/*)
+            ;;
+
+            *)
+              echo "Pull requests into \`$GITHUB_BASE_REF\` come from \`dev/*\` or \`hotfix/*\`, not \`$GITHUB_HEAD_REF\`." >&2
+              exit 1
+            ;;
+          esac
+
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.head_ref || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Toolchain
+        uses: $/.github/actions/setup
+
+      - name: Check Skipped Jobs
+        env:
+          SKIP: ${{ inputs.skip }}
+        run: bun --bun ./.cache/forge.cache/bin/check-skip.ts --skip="$SKIP"
+
+      - name: Prepare Dependencies
+        id: prepare
+        uses: $/.github/actions/prepare
+        with:
+          install-command: ${{ inputs.install-command }}
+
+      - name: Run Checks
+        env:
+          COMMAND: ${{ inputs.check-command }}
+        run: sh -c "$COMMAND"
+
+      - name: Save Caches
+        if: ${{ steps.prepare.outputs.cache-hit != 'true' && !github.event.pull_request.head.repo.fork }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ./.cache
+            !./.cache/forge.cache
+          key: ${{ steps.prepare.outputs.cache-primary-key }}
+
+      - name: Look For Fixes
+        id: fixes
+        run: |
+          changes=$(git status --porcelain --untracked-files=no)
+
+          if [ -n "$changes" ]; then
+            git diff --binary >"$RUNNER_TEMP/fixes.patch"
+
+            {
+              echo "commit=$(git rev-parse HEAD)"
+              echo 'has-changes=1'
+            } >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: List Matrix Rows
+        id: rows
+        if: >-
+          ${{ steps.fixes.outputs.has-changes == ''
+            && !contains(fromJSON(inputs.skip), 'matrix') && !contains(fromJSON(inputs.skip), 'check') }}
+        env:
+          COMMAND: ${{ inputs.matrix-rows-command }}
+        run: |
+          rows=$(sh -c "$COMMAND")
+
+          echo "rows=$rows" >>"$GITHUB_OUTPUT"
+
+      - name: Refuse Unfixed Tree
+        if: >-
+          ${{ steps.fixes.outputs.has-changes != ''
+            && (startsWith(github.ref, 'refs/heads/release/') || github.event.pull_request.head.repo.fork
+            || contains(fromJSON(inputs.skip), 'hygiene') || contains(fromJSON(inputs.skip), 'check')) }}
+        run: |
+          git status --short --untracked-files=no >&2
+          echo "The check changed these files; commit its fixes." >&2
+          exit 1
+
+      - name: Upload Fixes
+        if: ${{ steps.fixes.outputs.has-changes != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fixes
+          path: ${{ runner.temp }}/fixes.patch
+          if-no-files-found: error
+          retention-days: 1
+
+  fixes:
+    name: Commit Fixes
+    needs: check
+    if: ${{ needs.check.outputs.has-fixes != '' }}
+    runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.check.outputs.commit }}
+          persist-credentials: false
+
+      - name: Setup Toolchain
+        uses: $/.github/actions/setup
+
+      - name: Download Fixes
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: fixes
+          path: ${{ runner.temp }}
+
+      - name: Act As Bot
+        id: bot
+        uses: $/.github/actions/bot
+        with:
+          client-id: ${{ secrets.BOT_CLIENT_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
+          permission-contents: write
+          permission-workflows: write
+
+      - name: Commit Fixes
+        env:
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+          GITHUB_TOKEN: ${{ steps.bot.outputs.token }}
+        run: |
+          git apply --index "$RUNNER_TEMP/fixes.patch"
+
+          bun --bun ./.cache/forge.cache/bin/commit-changes.ts \
+            --branch="$BRANCH" \
+            --message='chore(hygiene): apply fixes' \
+            >/dev/null
+
+  rows:
+    name: Row ${{ matrix.row }}
+    needs: check
+    if: ${{ needs.check.outputs.rows != '[]' }}
+    runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ inputs.matrix-max-parallel }}
+      matrix:
+        row: ${{ fromJSON(needs.check.outputs.rows) }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.head_ref || github.ref }}
+          persist-credentials: false
+
+      - name: Prepare Dependencies
+        uses: $/.github/actions/prepare
+        with:
+          install-command: ${{ inputs.install-command }}
+
+      - name: Run Row
+        env:
+          COMMAND: ${{ inputs.matrix-command }}
+          ROW: ${{ matrix.row }}
+        run: sh -c "$COMMAND"
+
+  matrix:
+    name: Matrix
+    needs: rows
+    if: ${{ always() }}
+    runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
+    steps:
+      - name: Check Rows
+        env:
+          RESULT: ${{ needs.rows.result }}
+        run: |
+          if [ "$RESULT" != success ] && [ "$RESULT" != skipped ]; then
+            echo "Matrix rows ended in \`$RESULT\`." >&2
+            exit 1
+          fi

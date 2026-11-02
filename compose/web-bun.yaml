@@ -1,0 +1,53 @@
+services:
+  app:
+    image: ${FORGE_APP_IMAGE:-${FORGE_REPOSITORY_OWNER:?Set it to the namespace of Forge's images, e.g. `ghcr.io/brnshkr`.}/${FORGE_APP_IMAGE_NAME:-forge-bun-app}:${FORGE_TAG:?Set `FORGE_TAG` and `FORGE_APP_IMAGE_DIGEST`, or `FORGE_APP_IMAGE`.}${FORGE_APP_IMAGE_SUFFIX:-}@${FORGE_APP_IMAGE_DIGEST:?Set `FORGE_TAG` and `FORGE_APP_IMAGE_DIGEST`, or `FORGE_APP_IMAGE`.}}
+    command: ${FORGE_COMMAND:-bun run start}
+    working_dir: /app
+    restart: unless-stopped
+    logging:
+      driver: local
+    init: true
+    read_only: true
+    mem_limit: ${APP_CONTAINER_MEMORY_LIMIT:-1g}
+    pids_limit: ${APP_CONTAINER_PIDS_LIMIT:-512}
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
+    env_file:
+      - path: ${FORGE_SHARED_DIR:-/app/var/shared}/.env.local
+        required: false
+      - path: ${FORGE_SHARED_DIR:-/app/var/shared}/.env.${DEPLOY_APP_ENV:-prod}.local
+        required: false
+      - path: ${FORGE_SHARED_DIR:-/app/var/shared}/.env.deploy.local
+        required: false
+    environment:
+      APP_ENV: ${DEPLOY_APP_ENV:-prod}
+      FORGE_RELEASE: ${FORGE_RELEASE:-}
+      HOST: 0.0.0.0
+      NODE_ENV: production
+      PORT: 80
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - >-
+          fetch('http://127.0.0.1:80/').then((response) =>
+          process.exit(response.status >= 500 ? 1 : 0)).catch(() => process.exit(1))
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    ports:
+      - ${APP_HOST_IP:-127.0.0.1}:${APP_HTTP_PORT:?}:80
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=512m
+      - /run:rw,nosuid,nodev,size=32m
+      - ${FORGE_CACHE_DIR:-/app/var/cache}:rw,nosuid,nodev,size=512m,uid=${RUNTIME_USER_UID:-33},gid=${RUNTIME_USER_GID:-33},mode=0700
+    volumes:
+      - forge-var:${FORGE_VAR_DIR:-/app/var}
+
+volumes:
+  forge-var: ~

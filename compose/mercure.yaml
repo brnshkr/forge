@@ -1,0 +1,47 @@
+services:
+  mercure:
+    image: ${MERCURE_IMAGE:-${MERCURE_REPOSITORY:-${FORGE_REPOSITORY_OWNER:?Set it to the namespace of Forge's images, e.g. `ghcr.io/brnshkr`.}/forge-php-app}:${MERCURE_TAG:?Set `MERCURE_TAG` and `MERCURE_IMAGE_DIGEST`, or `MERCURE_IMAGE`.}@${MERCURE_IMAGE_DIGEST:?Set `MERCURE_TAG` and `MERCURE_IMAGE_DIGEST`, or `MERCURE_IMAGE`.}}
+    container_name: ${COMPOSE_PROJECT_NAME}-mercure
+    command: frankenphp run --config /etc/frankenphp/Caddyfile
+    restart: unless-stopped
+    logging:
+      driver: local
+    init: true
+    read_only: true
+    mem_limit: ${MERCURE_CONTAINER_MEMORY_LIMIT:-256m}
+    pids_limit: ${MERCURE_CONTAINER_PIDS_LIMIT:-256}
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    env_file:
+      - path: ${FORGE_SHARED_DIR:-/app/var/shared}/.env.mercure.local
+        required: false
+    environment:
+      FORGE_MERCURE: 1
+      MERCURE_EXTRA_DIRECTIVES: ~
+      MERCURE_PUBLISHER_JWT_ALG: ~
+      MERCURE_PUBLISHER_JWT_KEY: ~
+      MERCURE_SUBSCRIBER_JWT_ALG: ~
+      MERCURE_SUBSCRIBER_JWT_KEY: ~
+      MERCURE_TRUSTED_ISSUERS: ~
+      SERVER_NAME: :80
+    healthcheck:
+      test:
+        - CMD
+        - php
+        - -r
+        - "exit(@file_get_contents('http://127.0.0.1:2019/metrics') === false ? 1 : 0);"
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=64m
+      - /run:rw,nosuid,nodev,size=32m
+    volumes:
+      - forge-mercure-config:/config
+      - forge-mercure-data:/data
+
+volumes:
+  forge-mercure-config: ~
+  forge-mercure-data: ~

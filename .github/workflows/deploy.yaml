@@ -1,0 +1,301 @@
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: Runner label for every job, defaults to the `RUNNER_IMAGE` variable
+        required: false
+        type: string
+
+      target:
+        description: Target to act on, named like its `.env.<target>` file and its GitHub environment
+        required: true
+        type: string
+
+      action:
+        description: '`deploy`, `rollback`, `restart`, `restore`, `remove`, `shared`, or `unlock`'
+        required: false
+        type: string
+        default: deploy
+
+      version:
+        description: Image tag a deploy releases, resolved to its digest unless `digest-key` names one this run pushed
+        required: false
+        type: string
+        default: ''
+
+      digest-key:
+        description: Cache key suffix of the digest this run pushed, `<image>-<image target>`
+        required: false
+        type: string
+        default: ''
+
+      registry:
+        description: Registry host the images are pulled from
+        required: false
+        type: string
+        default: ghcr.io
+
+      namespace:
+        description: Registry namespace the images are pulled from, defaults to the repository owner
+        required: false
+        type: string
+        default: ''
+
+    secrets:
+      DEPLOY_HOSTS:
+        description: Hosts to deploy to, replacing the stage file's
+        required: false
+
+      DEPLOY_PATH:
+        description: Directory of the target on each host, replacing the stage file's
+        required: false
+
+      DEPLOY_SSH_KEY:
+        description: SSH private key of the deploy user
+        required: false
+
+      DEPLOY_DOTENV:
+        description: Values every deploy writes to the server's `shared/.env.deploy.local`
+        required: false
+
+      DEPLOY_DOTENV_MAILPIT:
+        description: Values every deploy writes to Mailpit's `.env.mailpit.local`
+        required: false
+
+      DEPLOY_DOTENV_MERCURE:
+        description: Values every deploy writes to Mercure's `.env.mercure.local`
+        required: false
+
+      REGISTRY_USERNAME:
+        description: Registry username, defaults to the user that started the run
+        required: false
+
+      REGISTRY_PASSWORD:
+        description: Registry password or token, defaults to the job's GitHub token
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: ${{ inputs.action }} ${{ inputs.target }}
+    runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
+    environment: ${{ inputs.target }}
+    concurrency:
+      group: deploy-${{ github.repository }}-${{ inputs.target }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Toolchain
+        uses: $/.github/actions/setup
+
+      - name: Log In To Registry
+        uses: $/.github/actions/login
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          password: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
+
+      - name: Restore Image Digest
+        if: ${{ inputs.digest-key != '' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ./.cache/image.digest
+          key: image-digest-${{ github.run_id }}-${{ inputs.digest-key }}
+          fail-on-cache-miss: true
+
+      - name: Load SSH Key
+        env:
+          DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 0700 ~/.ssh
+          printf '%s\n' "${DEPLOY_KNOWN_HOSTS:?}" >~/.ssh/known_hosts
+          printf 'StrictHostKeyChecking yes\n' >~/.ssh/config
+
+          agent=$(ssh-agent -s)
+
+          eval "$agent"
+          printf '%s\n' "${DEPLOY_SSH_KEY:?}" | ssh-add - 2>/dev/null
+
+          {
+            echo "SSH_AGENT_PID=$SSH_AGENT_PID"
+            echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK"
+          } >>"$GITHUB_ENV"
+
+      - name: Extract Deploy Script
+        id: script
+        env:
+          DEPLOY_HOSTS: ${{ secrets.DEPLOY_HOSTS }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          script=./.cache/forge.cache/docker/deploy.sh
+          printf 'services: {}\n' >"$RUNNER_TEMP/empty.yaml"
+
+          dotenv=1
+          make_forge_repository_owner=''
+
+          if [ -f Makefile ]; then
+            dotenv=$(make -s --no-print-directory \
+              --eval "dotenv: ; @echo \$(if \$(filter undefined,\$(origin DOTENV)),1,\$(DOTENV))" dotenv)
+
+            make_forge_repository_owner=$(make -s --no-print-directory \
+              --eval "owner: ; @echo \$(or \$(FORGE_REPOSITORY_OWNER),\$(patsubst %/,%,\$(dir \$(FORGE_REPOSITORY))))" owner)
+          fi
+
+          case $dotenv in
+            '' | 0 | false | off | no)
+              dotenv_base=''
+            ;;
+
+            1 | true | on | yes)
+              dotenv_base=.env
+            ;;
+
+            *)
+              dotenv_base=$dotenv
+            ;;
+          esac
+
+          read_value() {
+            stage=$1
+            key=$2
+
+            set --
+
+            for env_file in "$dotenv_base" "$dotenv_base.$stage"; do
+              if [ -f "$env_file" ]; then
+                set -- "$@" --env-file "$env_file"
+              fi
+            done
+
+            docker compose "$@" --file "$RUNNER_TEMP/empty.yaml" config --environment | sed -n "s/^$key=//p"
+          }
+
+          hosts=${DEPLOY_HOSTS:-$(read_value "$TARGET" DEPLOY_HOSTS)}
+          path=${DEPLOY_PATH:-$(read_value "$TARGET" DEPLOY_PATH)}
+
+          for host in $hosts; do
+            name=${host#*@}
+
+            echo "::add-mask::$host"
+            echo "::add-mask::${host%%@*}"
+            echo "::add-mask::${name%:*}"
+          done
+
+          if [ -n "$path" ]; then
+            echo "::add-mask::$path"
+          fi
+
+          forge_repository_owner=${make_forge_repository_owner:-$(read_value "$TARGET" FORGE_REPOSITORY_OWNER)}
+
+          if [ -z "$forge_repository_owner" ]; then
+            forge_repository=$(read_value "$TARGET" FORGE_REPOSITORY)
+            forge_repository_owner=${forge_repository%/*}
+          fi
+
+          forge_repository_owner=${forge_repository_owner:-ghcr.io/brnshkr}
+          image_stage=$(read_value "$TARGET" DEPLOY_IMAGE)
+          build_stage=${image_stage:-$TARGET}
+          build_image=$(read_value "$build_stage" FORGE_BUILD_IMAGE)
+          build_digest_key=FORGE_BUILD_IMAGE_DIGEST
+          build_digest=$(read_value "$build_stage" FORGE_BUILD_IMAGE_DIGEST)
+
+          if [ -z "$build_digest" ] && [ "$(read_value "$build_stage" FORGE_APP_IMAGE_SUFFIX)" = -dev ]; then
+            build_digest_key=FORGE_APP_IMAGE_DIGEST
+            build_digest=$(read_value "$build_stage" FORGE_APP_IMAGE_DIGEST)
+          fi
+
+          if [ -z "$build_image" ] && [ -n "$build_digest" ]; then
+            forge_tag=$(read_value "$build_stage" FORGE_TAG)
+            app_image_name=$(read_value "$build_stage" FORGE_APP_IMAGE_NAME)
+
+            if [ -z "$forge_tag" ]; then
+              echo "Variable \"FORGE_TAG\" not found, but \"$build_digest_key\" requires it." >&2
+              exit 1
+            fi
+
+            build_image=$forge_repository_owner/${app_image_name:-forge-app}:$forge_tag-dev@$build_digest
+          fi
+
+          if [ -n "$build_image" ]; then
+            script=$RUNNER_TEMP/deploy.sh
+
+            docker run --rm --entrypoint cat "$build_image" /usr/local/share/forge/deploy.sh >"$script"
+          fi
+
+          {
+            echo "dotenv-base=$dotenv_base"
+            echo "forge-repository-owner=$forge_repository_owner"
+            echo "path=$script"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Run Deploy Script
+        env:
+          ACTION: ${{ inputs.action }}
+          DEPLOY_HOSTS_SECRET: ${{ secrets.DEPLOY_HOSTS }}
+          DEPLOY_DOTENV: ${{ secrets.DEPLOY_DOTENV }}
+          DEPLOY_DOTENV_BASE: ${{ steps.script.outputs.dotenv-base }}
+          DEPLOY_DOTENV_MAILPIT: ${{ secrets.DEPLOY_DOTENV_MAILPIT }}
+          DEPLOY_DOTENV_MERCURE: ${{ secrets.DEPLOY_DOTENV_MERCURE }}
+          DEPLOY_NAMESPACE: ${{ inputs.namespace || github.repository_owner }}
+          DEPLOY_PATH_SECRET: ${{ secrets.DEPLOY_PATH }}
+          DEPLOY_REGISTRY: ${{ inputs.registry }}
+          FORGE_REPOSITORY_OWNER: ${{ steps.script.outputs.forge-repository-owner }}
+          SCRIPT: ${{ steps.script.outputs.path }}
+          TARGET: ${{ inputs.target }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [ -f ./.cache/image.digest ]; then
+            DEPLOY_DIGEST=$(cat ./.cache/image.digest)
+            export DEPLOY_DIGEST
+          fi
+
+          if [ -n "$DEPLOY_DOTENV" ]; then
+            DEPLOY_DOTENV_FILE=$RUNNER_TEMP/dotenv
+
+            (umask 077 && printf '%s\n' "$DEPLOY_DOTENV" >"$DEPLOY_DOTENV_FILE")
+
+            export DEPLOY_DOTENV_FILE
+          fi
+
+          if [ -n "$DEPLOY_DOTENV_MAILPIT" ]; then
+            DEPLOY_DOTENV_MAILPIT_FILE=$RUNNER_TEMP/dotenv-mailpit
+
+            (umask 077 && printf '%s\n' "$DEPLOY_DOTENV_MAILPIT" >"$DEPLOY_DOTENV_MAILPIT_FILE")
+
+            export DEPLOY_DOTENV_MAILPIT_FILE
+          fi
+
+          if [ -n "$DEPLOY_DOTENV_MERCURE" ]; then
+            DEPLOY_DOTENV_MERCURE_FILE=$RUNNER_TEMP/dotenv-mercure
+
+            (umask 077 && printf '%s\n' "$DEPLOY_DOTENV_MERCURE" >"$DEPLOY_DOTENV_MERCURE_FILE")
+
+            export DEPLOY_DOTENV_MERCURE_FILE
+          fi
+
+          if [ -n "$DEPLOY_HOSTS_SECRET" ]; then
+            export DEPLOY_HOSTS="$DEPLOY_HOSTS_SECRET"
+          fi
+
+          if [ -n "$DEPLOY_PATH_SECRET" ]; then
+            export DEPLOY_PATH="$DEPLOY_PATH_SECRET"
+          fi
+
+          DEPLOY_NAMESPACE=$(printf '%s' "$DEPLOY_NAMESPACE" | tr '[:upper:]' '[:lower:]')
+          export DEPLOY_NAMESPACE
+
+          sh "$SCRIPT" "$ACTION" "$TARGET"

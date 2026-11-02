@@ -1,0 +1,4 @@
+http:// {
+	header -Server
+	redir https://{host}{uri} 308
+}

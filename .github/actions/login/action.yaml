@@ -1,0 +1,25 @@
+name: Log In To Registry
+description: Logs Docker into a registry for the rest of the job
+
+inputs:
+  registry:
+    description: Registry host to log into
+    required: true
+
+  username:
+    description: Registry username
+    required: true
+
+  password:
+    description: Registry password or token
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Log In To Registry
+      uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+      with:
+        registry: ${{ inputs.registry }}
+        username: ${{ inputs.username }}
+        password: ${{ inputs.password }}

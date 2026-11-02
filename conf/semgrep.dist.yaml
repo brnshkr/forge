@@ -1,0 +1,27 @@
+x-brnshkr:
+  ignores:
+    # ESLint's `regexp/no-super-linear-backtracking` checks every literal's own pattern; this rule flags them all
+    - ajinabraham.njsscan.dos.regex_dos.regex_dos
+
+    # `compileLinearPattern` refuses a pattern that can backtrack super-linearly
+    - rule: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
+      files:
+        - src/shared/utils/pattern.ts
+
+    # Local composite actions are pinned by the calling workflow's own ref
+    - rule: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+      files:
+        - .github/actions/scan-image/action.yaml
+        - .github/workflows/bump.yaml
+        - .github/workflows/check.yaml
+        - .github/workflows/deploy.yaml
+        - .github/workflows/publish.yaml
+        - .github/workflows/reword.yaml
+        - .github/workflows/security.yaml
+
+    # Each host part needs `add-mask`; stopping workflow commands needs write access, which reads every secret
+    - rule: yaml.github-actions.security.audit.unsafe-add-mask-workflow-command.unsafe-add-mask-workflow-command
+      files:
+        - .github/workflows/deploy.yaml
+
+rules: []

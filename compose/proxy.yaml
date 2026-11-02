@@ -1,0 +1,45 @@
+services:
+  proxy:
+    image: ${PROXY_IMAGE:-${PROXY_REPOSITORY:-${FORGE_REPOSITORY_OWNER:?Set it to the namespace of Forge's images, e.g. `ghcr.io/brnshkr`.}/forge-php-app}:${PROXY_TAG:?Set `PROXY_TAG` and `PROXY_IMAGE_DIGEST`, or `PROXY_IMAGE`.}@${PROXY_IMAGE_DIGEST:?Set `PROXY_TAG` and `PROXY_IMAGE_DIGEST`, or `PROXY_IMAGE`.}}
+    container_name: ${COMPOSE_PROJECT_NAME}-proxy
+    command: frankenphp run --config /etc/frankenphp/Caddyfile
+    restart: unless-stopped
+    logging:
+      driver: local
+    init: true
+    read_only: true
+    mem_limit: ${PROXY_CONTAINER_MEMORY_LIMIT:-256m}
+    pids_limit: ${PROXY_CONTAINER_PIDS_LIMIT:-512}
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      CADDY_GLOBAL_OPTIONS: ~
+      FORGE_HTTP_REDIRECT: 1
+      FORGE_READ_BODY_TIMEOUT: ~
+      SERVER_NAME: http://127.0.0.1:2020
+    healthcheck:
+      test:
+        - CMD
+        - php
+        - -r
+        - "exit(@file_get_contents('http://127.0.0.1:2019/metrics') === false ? 1 : 0);"
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    ports:
+      - ${PROXY_HOST_IP:-0.0.0.0}:${PROXY_HTTP_PORT:-80}:80
+      - ${PROXY_HOST_IP:-0.0.0.0}:${PROXY_HTTPS_PORT:-443}:443
+      - ${PROXY_HOST_IP:-0.0.0.0}:${PROXY_HTTPS_PORT:-443}:443/udp
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=64m
+      - /run:rw,nosuid,nodev,size=32m
+    volumes:
+      - forge-caddy-config:/config
+      - forge-caddy-data:/data
+      - ${FORGE_PROXY_SITES_DIR:-/srv/forge-shared/sites}:/etc/frankenphp/Caddyfile.d:ro
+
+volumes:
+  forge-caddy-config: ~
+  forge-caddy-data: ~

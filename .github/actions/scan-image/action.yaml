@@ -1,0 +1,38 @@
+name: Scan Image
+description: Scans an image for fixable findings with Trivy and reports them
+
+inputs:
+  image:
+    description: Image reference to scan
+    required: true
+
+  category:
+    description: Code scanning category the results are listed under
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Scan For Fixable Findings
+      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+      env:
+        TRIVY_DISABLE_TELEMETRY: true
+        TRIVY_SKIP_VERSION_CHECK: true
+      with:
+        image-ref: ${{ inputs.image }}
+        severity: MEDIUM,HIGH,CRITICAL
+        ignore-unfixed: true
+        exit-code: 1
+        format: sarif
+        output: ./.cache/trivy.sarif
+        limit-severities-for-sarif: true
+        cache: true
+        cache-dir: ./.cache/trivy.cache
+        trivyignores: ${{ hashFiles('conf/trivyignore.yaml') != '' && './conf/trivyignore.yaml' || '' }}
+
+    - name: Report Findings
+      if: ${{ !cancelled() }}
+      uses: $/.github/actions/report-sarif
+      with:
+        file: ./.cache/trivy.sarif
+        category: ${{ inputs.category }}

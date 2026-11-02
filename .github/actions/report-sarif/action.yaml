@@ -1,0 +1,52 @@
+name: Report SARIF Findings
+description: Prints every result of a SARIF file to the log and uploads it to code scanning
+
+inputs:
+  file:
+    description: SARIF file a scanner wrote
+    required: true
+
+  category:
+    description: Code scanning category the results are listed under
+    required: true
+
+  print:
+    description: Whether to print the results, `false` when the scanner already does
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - name: Print Findings
+      id: print
+      shell: bash
+      env:
+        FILE: ${{ inputs.file }}
+        PRINT: ${{ inputs.print }}
+      run: |
+        if [ ! -f "$FILE" ]; then
+          echo "\`$FILE\` is missing." >&2
+          exit 0
+        fi
+
+        echo 'is-written=1' >>"$GITHUB_OUTPUT"
+
+        if [ "$PRINT" != true ]; then
+          exit 0
+        fi
+
+        jq -r '
+          .runs[]
+          | .tool.driver.name as $tool
+          | .results[]
+          | .locations[0].physicalLocation as $location
+          | "\($tool) \(.level // "warning") \(.ruleId): \($location.artifactLocation.uri // "-"):\($location.region.startLine // 0) \(.message.text | split("\n")[0])"
+        ' "$FILE"
+
+    - name: Upload To Code Scanning
+      if: ${{ steps.print.outputs.is-written != '' && !github.event.pull_request.head.repo.fork }}
+      uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+      with:
+        sarif_file: ${{ inputs.file }}
+        category: ${{ inputs.category }}

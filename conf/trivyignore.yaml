@@ -1,0 +1,246 @@
+vulnerabilities:
+  - id: CVE-2026-27145
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-32280
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-32281
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-32282
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-32283
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-32288
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-32289
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-33810
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-33811
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-33814
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-33818
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-39820
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-39821
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-39822
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-39823
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-39825
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-39826
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-39836
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-42499
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-42504
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-42505
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-42507
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-46600
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-56853
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-56858
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-56859
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-56860
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-56862
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-56866
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-78659
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-78660
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-78663
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-78667
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-78669
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-94439
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-94440
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-94448
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-97030
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-97031
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-97032
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25
+
+  - id: CVE-2026-111943
+    paths:
+      - usr/local/bin/actionlint
+    statement: actionlint 1.7.12 is built with an older Go; waiting for its next release
+    expired_at: 2027-01-25

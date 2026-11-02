@@ -1,0 +1,36 @@
+services:
+  mailpit:
+    image: ${MAILPIT_IMAGE:-${MAILPIT_REPOSITORY:-axllent/mailpit}:${MAILPIT_TAG:?Set `MAILPIT_TAG` and `MAILPIT_IMAGE_DIGEST`, or `MAILPIT_IMAGE`.}@${MAILPIT_IMAGE_DIGEST:?Set `MAILPIT_TAG` and `MAILPIT_IMAGE_DIGEST`, or `MAILPIT_IMAGE`.}}
+    container_name: ${COMPOSE_PROJECT_NAME}-mailpit
+    user: nobody
+    restart: unless-stopped
+    logging:
+      driver: local
+    init: true
+    read_only: true
+    mem_limit: ${MAILPIT_CONTAINER_MEMORY_LIMIT:-256m}
+    pids_limit: ${MAILPIT_CONTAINER_PIDS_LIMIT:-256}
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    env_file:
+      - path: ${FORGE_SHARED_DIR:-/app/var/shared}/.env.mailpit.local
+        required: false
+    environment:
+      MP_MAX_MESSAGES: ${MAILPIT_MAX_MESSAGES:?}
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+      MP_SMTP_BIND_ADDR: 0.0.0.0:${MAILPIT_SMTP_PORT:?}
+    healthcheck:
+      test:
+        - CMD
+        - /mailpit
+        - readyz
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      - ${MAILPIT_HOST_IP:-127.0.0.1}:${MAILPIT_WEB_PORT:?}:8025
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=64m

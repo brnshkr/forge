@@ -1,0 +1,69 @@
+name: Act As Bot
+description: Mints a token of the GitHub App and lets git commit as its bot
+
+inputs:
+  client-id:
+    description: Client ID of the GitHub App the workflows push through
+    required: true
+
+  private-key:
+    description: Private key of the GitHub App the workflows push through
+    required: true
+
+  owner:
+    description: >-
+      Account whose repositories the token can access.
+      Leave empty to limit access to the current repository.
+    required: false
+    default: ''
+
+  permission-contents:
+    description: >-
+      Contents permission of the token, `read` or `write`;
+      with all three `permission-*` inputs empty, the token gets every permission the App holds
+    required: false
+    default: ''
+
+  permission-pull-requests:
+    description: >-
+      Pull request permission of the token, `read` or `write`;
+      with all three `permission-*` inputs empty, the token gets every permission the App holds
+    required: false
+    default: ''
+
+  permission-workflows:
+    description: >-
+      Workflow permission of the token, `read` or `write`;
+      with all three `permission-*` inputs empty, the token gets every permission the App holds
+    required: false
+    default: ''
+
+outputs:
+  token:
+    description: Installation token of the GitHub App
+    value: ${{ steps.token.outputs.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Mint Token
+      id: token
+      uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+      with:
+        client-id: ${{ inputs.client-id }}
+        private-key: ${{ inputs.private-key }}
+        owner: ${{ inputs.owner }}
+        permission-contents: ${{ inputs.permission-contents }}
+        permission-pull-requests: ${{ inputs.permission-pull-requests }}
+        permission-workflows: ${{ inputs.permission-workflows }}
+
+    - name: Commit As Bot
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+        SLUG: ${{ steps.token.outputs.app-slug }}
+      run: |
+        user_id=$(gh api "/users/$SLUG[bot]" --jq .id)
+
+        git config --global user.name "$SLUG[bot]"
+        git config --global user.email "$user_id+$SLUG[bot]@users.noreply.github.com"

@@ -1,0 +1,2 @@
+# Placeholder, so the Caddyfile's import of this directory always finds a file.
+# Add your own sites beside it as *.caddyfile files.

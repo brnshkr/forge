@@ -1,0 +1,62 @@
+# FrankenPHP's Caddyfile, adapted: https://frankenphp.dev/docs/config
+{
+	skip_install_trust
+	default_sni 127.0.0.1
+	auto_https disable_redirects
+
+	servers {
+		timeouts {
+			read_body {$FORGE_READ_BODY_TIMEOUT:2m}
+		}
+	}
+
+	{$CADDY_GLOBAL_OPTIONS}
+
+	frankenphp {
+		max_wait_time {$FORGE_MAX_WAIT_TIME:30s}
+
+		{$FRANKENPHP_CONFIG}
+	}
+}
+
+(forge-headers) {
+	header {
+		-Server
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin"
+		Permissions-Policy "{$FORGE_PERMISSIONS_POLICY:accelerometer=(), ambient-light-sensor=(), autoplay=(), battery=(), browsing-topics=(), camera=(), cross-origin-isolated=(), display-capture=(), document-domain=(), encrypted-media=(), execution-while-not-rendered=(), execution-while-out-of-viewport=(), fullscreen=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), midi=(), navigation-override=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), serial=(), speaker-selection=(), sync-xhr=(), usb=(), web-share=(), xr-spatial-tracking=()}"
+		Content-Security-Policy "{$FORGE_CONTENT_SECURITY_POLICY:base-uri 'none'; child-src 'none'; connect-src 'self'; default-src 'none'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; frame-src 'none'; img-src 'self' data:; manifest-src 'self'; media-src 'none'; object-src 'none'; script-src 'self'; style-src 'self'; worker-src 'self';}"
+	}
+}
+
+import ./forge/redirect.{$FORGE_HTTP_REDIRECT:0}.caddyfile
+import ./forge/mercure.{$FORGE_MERCURE:0}.caddyfile
+import ./forge/hot-reload.{$FORGE_HOT_RELOAD:0}.caddyfile
+import ./Caddyfile.d/*.caddyfile
+
+{$CADDY_EXTRA_CONFIG}
+
+{$SERVER_NAME:localhost} {
+	root {$SERVER_ROOT:./public}
+
+	@compressible not path /.well-known/mercure
+	encode @compressible zstd br gzip
+
+	@php path *.php
+	rewrite @php /
+
+	import forge-headers
+	import forge-mercure
+	import ./forge/worker.{$FORGE_WORKER:0}.caddyfile
+
+	log {
+		format filter {
+			request>uri query {
+				replace authorization REDACTED
+			}
+		}
+	}
+
+	{$CADDY_SERVER_EXTRA_DIRECTIVES}
+}

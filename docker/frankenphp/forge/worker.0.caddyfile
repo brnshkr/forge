@@ -1,0 +1,3 @@
+php_server {
+	import forge-hot-reload
+}

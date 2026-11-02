@@ -1,0 +1,35 @@
+name: Setup Toolchain
+description: Checks out Forge into `./.cache/forge.cache`, installs its pinned Bun version and its dependencies
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout Forge
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: ${{ job.workflow_repository }}
+        ref: ${{ job.workflow_sha }}
+        path: ./.cache/forge.cache
+        persist-credentials: false
+
+    - name: Disable Telemetry
+      shell: bash
+      run: echo 'DO_NOT_TRACK=1' >>"$GITHUB_ENV"
+
+    - name: Read Tool Versions
+      id: tools
+      shell: bash
+      run: |
+        bun=$(. ./.cache/forge.cache/.env && printf '%s' "${BUN_VERSION:?}")
+
+        echo "bun=$bun" >>"$GITHUB_OUTPUT"
+
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      with:
+        bun-version: ${{ steps.tools.outputs.bun }}
+
+    - name: Install Dependencies
+      shell: bash
+      working-directory: ./.cache/forge.cache
+      run: bun install --frozen-lockfile
