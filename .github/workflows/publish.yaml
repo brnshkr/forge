@@ -434,6 +434,9 @@ jobs:
       - digest
     if: >-
       ${{ !cancelled() && needs.digest.result == 'success' && fromJSON(needs.targets.outputs.release).version == '' }}
+    permissions:
+      contents: read
+      packages: read
     uses: $/.github/workflows/deploy.yaml
     with:
       runner: ${{ inputs.runner }}
@@ -455,6 +458,9 @@ jobs:
       ${{ !cancelled() && needs.digest.result == 'success' && fromJSON(needs.targets.outputs.release).version != ''
         && fromJSON(needs.targets.outputs.staging)[0] != null
         && !contains(fromJSON(inputs.skip), 'staging') && !contains(fromJSON(inputs.skip), 'deploy') }}
+    permissions:
+      contents: read
+      packages: read
     strategy:
       fail-fast: false
       matrix:
@@ -1121,6 +1127,9 @@ jobs:
       ${{ !cancelled() && needs.tag.result == 'success' && needs.release.result != 'failure'
         && fromJSON(needs.targets.outputs.deploy).production != null
         && !contains(fromJSON(inputs.skip), 'production') && !contains(fromJSON(inputs.skip), 'deploy') }}
+    permissions:
+      contents: read
+      packages: read
     uses: $/.github/workflows/deploy.yaml
     with:
       runner: ${{ inputs.runner }}
