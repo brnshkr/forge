@@ -69,6 +69,10 @@ bump: bump-tools #~~ moves every pin this repository owns
 
 SEMGREP_PYTHON = $(_SEMGREP_RUN) sh $(APP_DIR)/scripts/semgrep-python.sh
 
+#--- commitlint
+
+COMMITLINT_RANGE := $(if $(shell git cat-file -e '$(_CI_RANGE_START)^{commit}' 2>/dev/null && echo 1),$(_CI_RANGE_START)..HEAD)
+
 ###> brnshkr/config ###
 _BRNSHKR_COMPOSE_CANDIDATES := compose.yaml \
 	compose.yml \
