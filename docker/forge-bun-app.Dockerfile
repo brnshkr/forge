@@ -10,6 +10,10 @@ ARG USER_GID=1000
 ARG RUNTIME_USER_UID=33
 ARG RUNTIME_USER_GID=33
 ARG EXTRA_APT_PACKAGES=""
+ARG DEV_APT_PACKAGES="\
+  git \
+  make \
+  original-awk"
 
 FROM oven/bun:${BUN_VERSION}-debian@${BUN_DIGEST} AS base
 
@@ -69,7 +73,7 @@ RUN \
     install -d -o "${USER_UID}" -g "${USER_GID}" -m 1777 /home/forge
 EOF
 
-  USER ${USER_UID}:${USER_GID}
+USER ${USER_UID}:${USER_GID}
 
 FROM base AS prod
 
@@ -89,6 +93,7 @@ FROM base AS dev
 
 ARG USER_UID
 ARG USER_GID
+ARG DEV_APT_PACKAGES
 
 ENV \
   BUN_INSTALL_CACHE_DIR=/app/.cache/bun.cache \
@@ -96,5 +101,21 @@ ENV \
 
 COPY --link ./docker/app/Dockerfile /usr/local/share/forge/app.Dockerfile
 COPY --link ./docker/deploy.sh /usr/local/share/forge/deploy.sh
+
+USER 0:0
+
+RUN \
+  --mount=type=cache,target=/var/cache/apt,sharing=locked \
+  --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+  --mount=type=bind,source=./docker/toolchain.sh,target=/tmp/toolchain.sh \
+  <<EOF
+    apt-get update
+
+    if [ -n "${DEV_APT_PACKAGES}" ]; then
+      apt-get install -y --no-install-recommends -o Dpkg::Options::=--force-confold ${DEV_APT_PACKAGES}
+    fi
+
+    sh /tmp/toolchain.sh configure
+EOF
 
 USER ${USER_UID}:${USER_GID}

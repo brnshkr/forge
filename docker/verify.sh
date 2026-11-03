@@ -41,6 +41,24 @@ verify_absence() {
   return 0
 }
 
+verify_app_tools() {
+  image_reference=$1
+  image_target=$2
+
+  if [ "$image_target" = prod ]; then
+    if ! verify_absence "$image_reference" git make; then
+      return 1
+    fi
+
+    return 0
+  fi
+
+  docker run --rm --entrypoint sh "$image_reference" -euc '
+    git --version
+    make --version
+  '
+}
+
 verify_php() {
   image_reference=$1
 
@@ -384,6 +402,10 @@ verify_app() {
     return 1
   fi
 
+  if ! verify_app_tools "$image_reference" "$image_target"; then
+    return 1
+  fi
+
   if [ "$image_target" = dev ]; then
     if ! docker run --rm --entrypoint test "$image_reference" -f /usr/local/share/forge/app.Dockerfile; then
       printf "\`%s\` has no generic app Dockerfile.\n" "$image_reference" >&2
@@ -423,6 +445,10 @@ verify_bun_app() {
   docker run --rm "$image_reference" bun --version
 
   if [ "$image_target" = prod ] && ! verify_app_users "$image_reference"; then
+    return 1
+  fi
+
+  if ! verify_app_tools "$image_reference" "$image_target"; then
     return 1
   fi
 
