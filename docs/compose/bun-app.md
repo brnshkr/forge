@@ -31,6 +31,9 @@ The default command is `bun --watch run start`. Override `FORGE_COMMAND` for
 another script. This fragment serves HTTP only; include a proxy fragment if you
 need HTTPS locally.
 
+`FORGE_INSPECT=1` starts it with Bun's debugger, which your editor attaches to at `ws://127.0.0.1:6499/`
+(`APP_HOST_IP` and `APP_INSPECT_PORT`), mapping `/app` to your working copy.
+
 ## Production
 
 Include `forge/compose/web-bun` with your own pinned application image:
