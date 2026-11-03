@@ -114,6 +114,7 @@ RUN \
       --home-dir /home/forge \
       "${USER_NAME}"
 
+    # NOTICE: Copying drops upstream's cap_net_bind_service, which no-new-privileges refuses; low ports bind without it
     cp /usr/local/bin/frankenphp /tmp/frankenphp
     mv /tmp/frankenphp /usr/local/bin/frankenphp
 
