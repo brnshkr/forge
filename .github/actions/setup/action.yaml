@@ -4,6 +4,10 @@ description: Checks out Forge into `./.cache/forge.cache`, installs its pinned B
 runs:
   using: composite
   steps:
+    - name: Disable Telemetry
+      shell: bash
+      run: echo 'DO_NOT_TRACK=1' >>"$GITHUB_ENV"
+
     - name: Checkout Forge
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -11,10 +15,6 @@ runs:
         ref: ${{ job.workflow_sha }}
         path: ./.cache/forge.cache
         persist-credentials: false
-
-    - name: Disable Telemetry
-      shell: bash
-      run: echo 'DO_NOT_TRACK=1' >>"$GITHUB_ENV"
 
     - name: Read Tool Versions
       id: tools

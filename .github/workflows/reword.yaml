@@ -26,6 +26,9 @@ on:
 permissions:
   contents: read
 
+env:
+  DO_NOT_TRACK: 1
+
 jobs:
   reword:
     name: Reword Dependabot Commits
