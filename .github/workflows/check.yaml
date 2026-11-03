@@ -84,8 +84,9 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ github.head_ref || github.ref }}
+          ref: >-
+            ${{ github.event.pull_request.head.repo.fork && format('refs/pull/{0}/head', github.event.pull_request.number)
+              || github.head_ref || github.ref }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -218,8 +219,9 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ github.head_ref || github.ref }}
+          ref: >-
+            ${{ github.event.pull_request.head.repo.fork && format('refs/pull/{0}/head', github.event.pull_request.number)
+              || github.head_ref || github.ref }}
           persist-credentials: false
 
       - name: Prepare Dependencies
