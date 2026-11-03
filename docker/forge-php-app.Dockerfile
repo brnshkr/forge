@@ -72,7 +72,7 @@ ENV \
   HOME=/home/forge \
   PHP_INI_SCAN_DIR=:/app/conf/php \
   SERVER_NAME=:80 \
-  XDG_CACHE_HOME=/cache/xdg \
+  XDG_CACHE_HOME=/app/var/cache/xdg \
   XDG_CONFIG_HOME=/config \
   XDG_DATA_HOME=/data
 
