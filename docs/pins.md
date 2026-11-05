@@ -14,7 +14,7 @@ BUILDKIT_DIGEST=sha256:<digest>
 BUILDKIT_IMAGE=moby/buildkit:v${BUILDKIT_VERSION}@${BUILDKIT_DIGEST}
 ```
 
-Gitleaks, OSV-Scanner, Node, and Semgrep are pinned the same way. `make bump` moves them:
+Gitleaks, OSV-Scanner, Node, Semgrep, and ORAS are pinned the same way. `make bump` moves them:
 
 | Pinned | Bumped |
 | --- | --- |

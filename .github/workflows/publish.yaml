@@ -672,7 +672,10 @@ jobs:
           username: ${{ secrets.MIRROR_REGISTRY_USERNAME }}
           password: ${{ secrets.MIRROR_REGISTRY_TOKEN }}
 
-      # NOTICE: `compose publish` interpolates, so every variable needs a placeholder of its shape
+      - name: Setup Toolchain
+        uses: $/.github/actions/setup
+
+      # NOTICE: Pushed the way `compose publish` would, which rejects a variable in a typed field such as `mem_limit`
       - name: Publish Fragments
         env:
           FRAGMENTS: ${{ fromJSON(needs.targets.outputs.release).fragments }}
@@ -683,7 +686,7 @@ jobs:
           REPOSITORY_NAME: ${{ github.event.repository.name }}
           TAGS: ${{ fromJSON(needs.targets.outputs.release).gitTags }}
         run: |
-          placeholders="$RUNNER_TEMP/placeholders.env"
+          oras=$(. ./.cache/forge.cache/.env && printf '%s' "${ORAS_IMAGE:?}")
           name_prefix=$(printf '%s-compose' "$REPOSITORY_NAME" | tr '[:upper:]' '[:lower:]')
           destinations=$(printf '%s/%s' "$REGISTRY" "$NAMESPACE" | tr '[:upper:]' '[:lower:]')
 
@@ -691,28 +694,43 @@ jobs:
             destinations="$destinations $(printf '%s/%s' "$MIRROR_REGISTRY" "$MIRROR_NAMESPACE" | tr '[:upper:]' '[:lower:]')"
           fi
 
+          tags=$(for tag in $TAGS; do printf '%s,' "${tag#v}"; done)
+
           for file in $FRAGMENTS; do
-            grep -o '[$]{[A-Z][A-Z0-9_]*' "$file" | cut -c 3- | sort -u | while read -r variable; do
-              case "$variable" in
-                *_DIR)
-                  printf '%s=/placeholder\n' "$variable"
-                ;;
+            name=$(basename "$file" .yaml)
+            directory="$RUNNER_TEMP/fragments/$name"
 
-                *_IP)
-                  printf '%s=127.0.0.1\n' "$variable"
-                ;;
+            mkdir -p "$directory"
+            cp "$file" "$directory/$name.yaml"
 
-                *)
-                  printf '%s=8080\n' "$variable"
-                ;;
-              esac
-            done >"$placeholders"
+            set -- "$name.yaml:application/vnd.docker.compose.file+yaml"
+
+            annotations="\"$name.yaml\": {\"com.docker.compose.file\": \"$name.yaml\"}"
+
+            sed -n 's/^ *file: \.\/\(.*\)$/\1/p' "$file" | sort -u >"$RUNNER_TEMP/fragments/$name.extends"
+
+            while read -r extended_file; do
+              cp "$(dirname "$file")/$extended_file" "$directory/$extended_file"
+
+              set -- "$@" "$extended_file:application/vnd.docker.compose.file+yaml"
+
+              annotations="$annotations, \"$extended_file\": {\"com.docker.compose.file\": \"$extended_file\", \"com.docker.compose.extends\": \"true\"}"
+            done <"$RUNNER_TEMP/fragments/$name.extends"
+
+            printf '{%s}\n' "$annotations" >"$directory/annotations.json"
 
             for destination in $destinations; do
-              for tag in $TAGS; do
-                docker compose --env-file "$placeholders" -f "$file" publish --yes \
-                  "$destination/$name_prefix-$(basename "$file" .yaml):${tag#v}"
-              done
+              docker run --rm \
+                --user "$(id -u):$(id -g)" \
+                --volume "$directory:/work" \
+                --volume "$HOME/.docker/config.json:/auth/config.json:ro" \
+                --workdir /work \
+                "$oras" push \
+                --registry-config /auth/config.json \
+                --artifact-type application/vnd.docker.compose.project \
+                --annotation-file annotations.json \
+                "$destination/$name_prefix-$name:${tags%,}" \
+                "$@"
             done
           done
 
