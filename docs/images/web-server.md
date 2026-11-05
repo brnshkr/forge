@@ -17,7 +17,8 @@ Without `SERVER_NAME` it answers plain HTTP on port 80.
 The `php-app` fragments set `FORGE_HTTP_REDIRECT=1`. It redirects plain HTTP with 308.
 
 The Caddyfile is FrankenPHP's own with additions, so FrankenPHP's variables keep working.
-It drops the `Server` header. It sends `Content-Security-Policy`, `Permissions-Policy`, `X-Frame-Options`,
+It drops the `Server`, `Via`, and `X-Powered-By` headers. It sends `Content-Security-Policy`, `Permissions-Policy`,
+`Strict-Transport-Security`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`, `X-Frame-Options`,
 `X-Content-Type-Options`, and `Referrer-Policy`. Their values are in the [Caddyfile](../../docker/frankenphp/Caddyfile).
 
 Mercure's `authorization` query parameter stays out of the access log.
@@ -30,6 +31,9 @@ Each header variable replaces the default value:
 | --- | --- |
 | `FORGE_CONTENT_SECURITY_POLICY` | your own policy |
 | `FORGE_PERMISSIONS_POLICY` | `camera=(self)` |
+| `FORGE_STRICT_TRANSPORT_SECURITY` | `max-age=31536000; includeSubDomains; preload` |
+| `FORGE_CROSS_ORIGIN_OPENER_POLICY` | `same-origin-allow-popups`, for an OAuth popup |
+| `FORGE_CROSS_ORIGIN_RESOURCE_POLICY` | `cross-origin`, for assets other sites embed |
 
 The switches:
 

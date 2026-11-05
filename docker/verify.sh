@@ -426,7 +426,12 @@ verify_response_headers() {
     return 1
   fi
 
-  for header_name in Content-Security-Policy Permissions-Policy; do
+  for header_name in \
+    Content-Security-Policy \
+    Cross-Origin-Opener-Policy \
+    Cross-Origin-Resource-Policy \
+    Permissions-Policy \
+    Strict-Transport-Security; do
     if ! printf '%s\n' "$response_headers" | grep -qi "^$header_name:"; then
       report_error "\`$image_reference\` sends no \`$header_name\` over $protocol."
 

@@ -22,9 +22,14 @@
 (forge-headers) {
 	header {
 		-Server
+		-Via
+		-X-Powered-By
 		X-Frame-Options "DENY"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "strict-origin"
+		Strict-Transport-Security "{$FORGE_STRICT_TRANSPORT_SECURITY:max-age=31536000}"
+		Cross-Origin-Opener-Policy "{$FORGE_CROSS_ORIGIN_OPENER_POLICY:same-origin}"
+		Cross-Origin-Resource-Policy "{$FORGE_CROSS_ORIGIN_RESOURCE_POLICY:same-origin}"
 		Permissions-Policy "{$FORGE_PERMISSIONS_POLICY:accelerometer=(), ambient-light-sensor=(), autoplay=(), battery=(), browsing-topics=(), camera=(), cross-origin-isolated=(), display-capture=(), document-domain=(), encrypted-media=(), execution-while-not-rendered=(), execution-while-out-of-viewport=(), fullscreen=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), midi=(), navigation-override=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), serial=(), speaker-selection=(), sync-xhr=(), usb=(), web-share=(), xr-spatial-tracking=()}"
 		Content-Security-Policy "{$FORGE_CONTENT_SECURITY_POLICY:base-uri 'none'; child-src 'none'; connect-src 'self'; default-src 'none'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; frame-src 'none'; img-src 'self' data:; manifest-src 'self'; media-src 'none'; object-src 'none'; script-src 'self'; style-src 'self'; worker-src 'self';}"
 	}

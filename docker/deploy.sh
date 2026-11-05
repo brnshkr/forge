@@ -2251,7 +2251,11 @@ write_site() {
   {
     cat <<CADDYFILE
 $server_name {
-	header -Server
+	header {
+		-Server
+		-Via
+		-X-Powered-By
+	}
 
 	reverse_proxy $PROJECT_NAME-app:80 {
 		lb_try_duration 10s
@@ -2269,7 +2273,11 @@ CADDYFILE
       cat <<CADDYFILE
 
 $mailpit_server_name {
-	header -Server
+	header {
+		-Server
+		-Via
+		-X-Powered-By
+	}
 
 	reverse_proxy $mailpit_project-mailpit:8025
 }
