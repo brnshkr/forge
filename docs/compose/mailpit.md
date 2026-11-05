@@ -27,6 +27,7 @@ FORGE_MAILPIT_FRAGMENT_DIGEST=sha256:<digest> # <version>
 
 Your app sends to the host `mailpit` on `MAILPIT_SMTP_PORT`. Any login is accepted, without TLS.
 The web interface answers on `http://127.0.0.1:8025`. Mailpit keeps at most `MAILPIT_MAX_MESSAGES` mails.
+They live in the volume `forge-mailpit-data` and survive a restart.
 
 A deploy refuses `mailpit` in production. On another target it can run once per server for every project there.
 Its logins then live in `shared/.env.mailpit.local`. Take a look at [shared services](../deploy/shared.md).

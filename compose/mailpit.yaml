@@ -15,6 +15,7 @@ services:
       - path: ${FORGE_SHARED_DIR:-/app/var/shared}/.env.mailpit.local
         required: false
     environment:
+      MP_DATABASE: /var/tmp/mailpit.db
       MP_MAX_MESSAGES: ${MAILPIT_MAX_MESSAGES:?}
       MP_SMTP_AUTH_ACCEPT_ANY: 1
       MP_SMTP_AUTH_ALLOW_INSECURE: 1
@@ -31,3 +32,8 @@ services:
       - ${MAILPIT_HOST_IP:-127.0.0.1}:${MAILPIT_WEB_PORT:?}:8025
     tmpfs:
       - /tmp:rw,nosuid,nodev,size=64m
+    volumes:
+      - forge-mailpit-data:/var/tmp
+
+volumes:
+  forge-mailpit-data: ~

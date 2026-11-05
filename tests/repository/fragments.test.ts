@@ -174,3 +174,12 @@ describe('the Bun app fragments', () => {
     },
   );
 });
+
+describe('the Mailpit fragment', () => {
+  it('keeps its mails in a volume over the image\'s world-writable /var/tmp, not in the capped /tmp', async () => {
+    const fragment = await readRepositoryFile('compose/mailpit.yaml');
+
+    expect(fragment).toContain('MP_DATABASE: /var/tmp/mailpit.db');
+    expect(fragment).toContain('- forge-mailpit-data:/var/tmp');
+  });
+});
