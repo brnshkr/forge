@@ -8,6 +8,7 @@ DEFAULT_REGISTRY=ghcr.io
 DEFAULT_SHARED_PATH=/srv/forge-shared
 DEFAULT_VAR_DIRECTORY=/app/var
 SHARED_PROJECT=forge-shared
+SHARED_DATA_NETWORK=$SHARED_PROJECT-data
 HOOKS_DIRECTORY=./conf/deploy
 HOOKS='before-migrate after-migrate before-switch after-switch after-rollback after-restore before-remove on-failure'
 RUN_DIRECTORY=/run/forge
@@ -1022,23 +1023,32 @@ write_release_override() {
       $SHARED_PROJECT:
         aliases:
           - $PROJECT_NAME-app
+YAML
+
+        if [ -n "$HAS_SHARED_DATA" ]; then
+          cat <<YAML
+      $SHARED_DATA_NETWORK: {}
+YAML
+        fi
+
+        cat <<YAML
     ports: !reset []
     environment:
       FORGE_HTTP_REDIRECT: 0
       SERVER_NAME: ":80"
       SYMFONY_TRUSTED_PROXIES: REMOTE_ADDR
 YAML
-      else
+      elif [ -n "$HAS_SHARED_DATA" ]; then
         cat <<YAML
   $service:
     networks:
       default: {}
-      $SHARED_PROJECT: {}
+      $SHARED_DATA_NETWORK: {}
 YAML
       fi
     done
 
-    if is_listed mailpit "$RELEASE_SERVICES"; then
+    if [ -n "$HAS_PROXY" ] && is_listed mailpit "$RELEASE_SERVICES"; then
       cat <<YAML
   mailpit:
     networks:
@@ -1047,11 +1057,21 @@ YAML
 YAML
     fi
 
-    cat <<YAML
-networks:
+    printf 'networks:\n'
+
+    if [ -n "$HAS_PROXY" ]; then
+      cat <<YAML
   $SHARED_PROJECT:
     external: true
 YAML
+    fi
+
+    if [ -n "$HAS_SHARED_DATA" ]; then
+      cat <<YAML
+  $SHARED_DATA_NETWORK:
+    external: true
+YAML
+    fi
   } >"$override_file"
 
   return 0
@@ -1089,15 +1109,31 @@ YAML
         read_only: true
         bind:
           create_host_path: false
+    networks:
+      default: {}
+      $SHARED_PROJECT: {}
 YAML
+    fi
+
+    default_network=$SHARED_DATA_NETWORK
+
+    if [ "$shared_service" = proxy ]; then
+      default_network=$SHARED_PROJECT
     fi
 
     cat <<YAML
 networks:
   default:
-    name: $SHARED_PROJECT
+    name: $default_network
     external: true
 YAML
+
+    if [ "$shared_service" = mailpit ]; then
+      cat <<YAML
+  $SHARED_PROJECT:
+    external: true
+YAML
+    fi
   } >"$override_file"
 
   return 0
@@ -1171,10 +1207,13 @@ render() {
   check_development "$full_file"
 
   HAS_PROXY=''
+  HAS_SHARED_NETWORK=''
+  HAS_SHARED_DATA=''
   SHARED_SERVICES=''
 
   if is_listed proxy "$ALL_SERVICES"; then
     HAS_PROXY=1
+    HAS_SHARED_NETWORK=1
     SHARED_SERVICES=proxy
   fi
 
@@ -1188,6 +1227,11 @@ render() {
     fi
 
     SHARED_SERVICES="$SHARED_SERVICES $service"
+    HAS_SHARED_DATA=1
+
+    if [ "$service" = mailpit ]; then
+      HAS_SHARED_NETWORK=1
+    fi
   done
 
   RELEASE_SERVICES=''
@@ -1487,7 +1531,15 @@ ensure_shared() {
     return 0
   fi
 
-  run_remote "$host_entry" "docker network inspect $SHARED_PROJECT >/dev/null 2>&1 || docker network create $SHARED_PROJECT >/dev/null"
+  if [ -n "$HAS_SHARED_NETWORK" ]; then
+    run_remote "$host_entry" \
+      "docker network inspect $SHARED_PROJECT >/dev/null 2>&1 || docker network create $SHARED_PROJECT >/dev/null"
+  fi
+
+  if [ -n "$HAS_SHARED_DATA" ]; then
+    run_remote "$host_entry" \
+      "docker network inspect $SHARED_DATA_NETWORK >/dev/null 2>&1 || docker network create --internal $SHARED_DATA_NETWORK >/dev/null"
+  fi
 
   for service in $SHARED_SERVICES; do
     shared_directory=$DEPLOY_SHARED_PATH/$service
@@ -1695,16 +1747,17 @@ move_valkey() {
   announce "$host_entry" "move keys of database ${database:-0} from $source_container to $destination_container"
 
   run_remote_script "$host_entry" "$source_container" "$destination_container" "$project_container" \
-    "${database:-0}" "$SHARED_PROJECT" "$key_pattern" <<'SH'
+    "${database:-0}" "$SHARED_PROJECT" "$SHARED_DATA_NETWORK" "$key_pattern" <<'SH'
 set -eu
 
 source_container=$1
 destination_container=$2
 project_container=$3
 database=$4
-shared_network=$5
-key_pattern=$6
-shared_container=$shared_network-valkey
+shared_project=$5
+shared_data_network=$6
+key_pattern=$7
+shared_container=$shared_project-valkey
 migrate_authentication=''
 
 query() {
@@ -1723,9 +1776,9 @@ if [ "$key_pattern" != '*' ] && [ "$destination_container" = "$shared_container"
   migrate_authentication="forge $(docker exec "$destination_container" printenv VALKEYCLI_AUTH)"
 fi
 
-docker network connect "$shared_network" "$project_container" 2>/dev/null || true
+docker network connect "$shared_data_network" "$project_container" 2>/dev/null || true
 
-trap 'docker network disconnect "$shared_network" "$project_container" 2>/dev/null || true' EXIT
+trap 'docker network disconnect "$shared_data_network" "$project_container" 2>/dev/null || true' EXIT
 
 destination_keys=$(query "$destination_container" -n "$database" --scan --pattern "$key_pattern")
 

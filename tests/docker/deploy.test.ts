@@ -1196,6 +1196,8 @@ describe('a deploy behind the proxy', () => {
     const valkeyCompose = await file(deployment.getServerPath('one', 'forge-shared/valkey/compose.yaml')).text();
     const site = await file(deployment.getServerPath('one', 'forge-shared/sites/acme-shop.caddyfile')).text();
     const releaseOverride = await file(path.join(deployment.capture, 'release-override.yaml')).text();
+    const sharedOverride = await file(path.join(deployment.capture, 'shared-override.yaml')).text();
+    const dockerCalls = await readDockerCalls(deployment);
 
     expect(deployRun.standardError).toBe('');
     expect(releaseCompose).not.toContain('  proxy:');
@@ -1205,7 +1207,10 @@ describe('a deploy behind the proxy', () => {
     expect(valkeyCompose).toContain('  valkey:');
     expect(site).toContain('acme-shop.example {');
     expect(site).toContain('reverse_proxy acme-shop-app:80 {');
-    expect(releaseOverride).toContain('          - acme-shop-app\n    ports: !reset []\n');
+    expect(releaseOverride).toContain('          - acme-shop-app\n      forge-shared-data: {}\n    ports: !reset []\n');
+    expect(releaseOverride).toContain('  php-worker:\n    networks:\n      default: {}\n      forge-shared-data: {}\n');
+    expect(sharedOverride).toContain('networks:\n  default:\n    name: forge-shared-data\n    external: true\n');
+    expect(dockerCalls).toContain('docker network inspect forge-shared-data');
     expect(deployRun.standardOutput).toContain('one: start forge-shared-proxy\none: start forge-shared-valkey\n');
   });
 
@@ -1222,9 +1227,13 @@ describe('a deploy behind the proxy', () => {
     });
 
     const dockerCalls = await readDockerCalls(deployment);
+    const releaseOverride = await file(path.join(deployment.capture, 'release-override.yaml')).text();
 
     expect(deployRun.standardOutput).toContain('one: stop php-app of 1970-01-01T00-00-00Z_0.9.0 for the proxy\n');
     expect(dockerCalls).toContain('docker compose --file compose.yaml rm --stop --force php-app');
+    expect(dockerCalls.filter((call) => call.includes('forge-shared-data'))).toStrictEqual([]);
+    expect(releaseOverride).not.toContain('forge-shared-data');
+    expect(releaseOverride).not.toContain('  php-worker:');
 
     await expect(file(path.join(deployment.capture, 'shared-override.yaml')).text())
       .resolves
@@ -1519,6 +1528,8 @@ describe('the shared services', () => {
     expect(sharedOverride).toContain('      MP_SMTP_AUTH_ACCEPT_ANY: "false"\n');
 
     expect(sharedOverride).toContain(`        source: ${deployment.getRemotePath('forge-shared/mailpit.passwd')}\n`);
+    expect(sharedOverride).toContain('    networks:\n      default: {}\n      forge-shared: {}\n');
+    expect(sharedOverride).toContain('    name: forge-shared-data\n    external: true\n  forge-shared:\n    external: true\n');
   });
 });
 
