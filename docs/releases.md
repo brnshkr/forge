@@ -66,8 +66,8 @@ Every other repository your App is installed on gets a `brnshkr-release` dispatc
 Below 1.0.0 a minor may break, so `0` never exists. A Composer package gets only the Git tag `v1.2.3`.
 Fragments take the Git tags without the `v`. Each pushed image is labeled with its version, commit, and the commit's time.
 
-A stable release also tags `IMAGE_ALIASES`, each with `IMAGE_SUFFIX`.
-A prerelease does not. Forge's own aliases:
+A stable release also tags `IMAGE_ALIASES`, each with `IMAGE_SUFFIX`, and the suffix alone, e.g. `forge-php:app`.
+A prerelease moves neither. Forge's own aliases:
 
 | Image | Alias |
 | --- | --- |

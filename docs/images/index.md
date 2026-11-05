@@ -94,6 +94,7 @@ A stable release `1.2.3` pushes these tags for each role:
 | minor | `forge:1.2-cli` |
 | version | `forge:1.2.3-cli` |
 | toolchain | `forge:php8.5-bun1.4-cli`, `forge-php:php8.5-app`, `forge-bun:bun1.4-app-dev` |
+| role | `forge-php:app`, the newest stable release |
 
 A prerelease pushes only its own version, e.g. `forge:1.3.0-rc.1-app`. Below 1.0.0 there is no major tag.
 No image is tagged `latest`.

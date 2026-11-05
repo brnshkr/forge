@@ -294,17 +294,18 @@ describe('the newest release of a repository', () => {
 });
 
 describe('the tags a release takes', () => {
-  it('move the major and minor and add every alias, each with the suffix', () => {
+  it('move the major and minor, every alias, and the role alone, each with the suffix', () => {
     expect(createImageTags({
       aliases: ['php8.5-bun1.4'],
       image: IMAGE,
-      suffix: '-chromium',
+      suffix: '-cli-chromium',
       version: RELEASE,
     })).toStrictEqual([
-      `${IMAGE}:1-chromium`,
-      `${IMAGE}:1.2-chromium`,
-      `${IMAGE}:1.2.3-chromium`,
-      `${IMAGE}:php8.5-bun1.4-chromium`,
+      `${IMAGE}:1-cli-chromium`,
+      `${IMAGE}:1.2-cli-chromium`,
+      `${IMAGE}:1.2.3-cli-chromium`,
+      `${IMAGE}:php8.5-bun1.4-cli-chromium`,
+      `${IMAGE}:cli-chromium`,
     ]);
 
     expect(createGitTags({
@@ -314,6 +315,19 @@ describe('the tags a release takes', () => {
       'v1',
       'v1.2',
       'v1.2.3',
+    ]);
+  });
+
+  it('take no role tag without a suffix, which would leave the tag empty', () => {
+    expect(createImageTags({
+      aliases: [],
+      image: IMAGE,
+      suffix: '',
+      version: RELEASE,
+    })).toStrictEqual([
+      `${IMAGE}:1`,
+      `${IMAGE}:1.2`,
+      `${IMAGE}:1.2.3`,
     ]);
   });
 

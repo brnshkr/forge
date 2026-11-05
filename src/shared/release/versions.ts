@@ -283,14 +283,19 @@ export const createGitTags = (options: GitTagOptions): string[] => {
 };
 
 export const createImageTags = (options: ImageTagOptions): string[] => {
-  const imageTags = options.version.prerelease === undefined
-    ? [
+  if (options.version.prerelease !== undefined) {
+    return createReleaseTags(options.version).map((tag) => formatImageTag(options, tag));
+  }
+
+  const roleTags = options.suffix === '' ? [] : [`${options.image}:${options.suffix.replace(/^-/v, '')}`];
+
+  return [
+    ...[
       ...createReleaseTags(options.version),
       ...options.aliases,
-    ]
-    : createReleaseTags(options.version);
-
-  return imageTags.map((tag) => formatImageTag(options, tag));
+    ].map((tag) => formatImageTag(options, tag)),
+    ...roleTags,
+  ];
 };
 
 export const createWidestImageTag = (options: ImageOptions): string => {
