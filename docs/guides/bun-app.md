@@ -34,6 +34,7 @@ flowchart LR
 
 The server listens where the fragments tell it, on `0.0.0.0:80`:
 
+<!-- eslint-skip -->
 ```ts
 // ./src/server.ts
 
