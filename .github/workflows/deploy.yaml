@@ -184,7 +184,11 @@ jobs:
               fi
             done
 
-            docker compose "$@" --file "$RUNNER_TEMP/empty.yaml" config --environment | sed -n "s/^$key=//p"
+            if ! environment=$(docker compose "$@" --file "$RUNNER_TEMP/empty.yaml" config --environment); then
+              return 1
+            fi
+
+            printf '%s\n' "$environment" | sed -n "s/^$key=//p"
           }
 
           hosts=${DEPLOY_HOSTS:-$(read_value "$TARGET" DEPLOY_HOSTS)}
