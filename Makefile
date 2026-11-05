@@ -38,6 +38,7 @@ BUN_AUDIT_FLAGS += --ignore GHSA-g3hv-75wg-m249
 
 #--- docker
 
+ifneq ($(wildcard $(_BRNSHKR_CONFIG_PATHS)),)
 #**
 #* A string from `package.json`, read at the top level or inside the object its parent key names.
 #*
@@ -68,6 +69,7 @@ export IMAGE_URL
 export IMAGE_SOURCE
 export IMAGE_REVISION
 export IMAGE_CREATED
+endif
 
 _IMAGE_KEYS := IMAGE_NAME \
 	IMAGE_DOCKERFILE \
