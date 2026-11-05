@@ -3,11 +3,15 @@ import { describe, expect, it } from 'vitest';
 import {
   createSplitReference,
   findSplitPins,
+  readForgeFragmentNamespace,
+  readForgeImageNamespace,
   readRepositoryDefaults,
+  readTagSuffixes,
   replaceAssignment,
 } from '#src/shared/pins/split-pins';
 
 import { GHCR } from '#src/shared/registry';
+import { packageName, packageOrganization } from '#src/shared/utils/package-json';
 import { createDigest } from '#tests/support/digest';
 
 import type { SplitDefaults } from '#src/shared/pins/split-pins';
@@ -16,10 +20,15 @@ const DIGEST = createDigest('a');
 const NEWER_DIGEST = createDigest('b');
 
 const DEFAULTS = <const>{
-  forgeRepository: `${GHCR}/acme/forge`,
-  forgeRepositoryOwner: `${GHCR}/acme`,
+  forgeFragmentNamespace: `${GHCR}/acme`,
+  forgeImageNamespace: `${GHCR}/acme`,
   repositories: {
     POSTGRES: 'postgres',
+    PROXY: `${GHCR}/acme/forge-php`,
+  },
+  tagSuffixes: {
+    POSTGRES: '',
+    PROXY: '-app',
   },
 } satisfies SplitDefaults;
 
@@ -28,7 +37,7 @@ describe('the split pins a dotenv file holds', () => {
     const text = [
       'FORGE_TAG=1',
       `FORGE_CLI_IMAGE_DIGEST=${DIGEST} # 1.0.0`,
-      `CLI_FRAGMENT_DIGEST="${DIGEST}"`,
+      `FORGE_CLI_FRAGMENT_DIGEST="${DIGEST}"`,
       `# POSTGRES_IMAGE_DIGEST=${DIGEST}`,
       'POSTGRES_IMAGE_DIGEST=sha256:short',
     ].join('\n');
@@ -42,9 +51,9 @@ describe('the split pins a dotenv file holds', () => {
       },
       {
         digest: DIGEST,
-        digestKey: 'CLI_FRAGMENT_DIGEST',
+        digestKey: 'FORGE_CLI_FRAGMENT_DIGEST',
         kind: 'fragment',
-        prefix: 'CLI',
+        prefix: 'FORGE_CLI',
       },
     ]);
   });
@@ -52,20 +61,82 @@ describe('the split pins a dotenv file holds', () => {
   it('read their default repositories from the fragments, one of forge\'s under its owner', () => {
     const fragments = [
       `image: \${POSTGRES_IMAGE:-\${POSTGRES_REPOSITORY:-postgres}:\${POSTGRES_TAG:?}}`,
-      `image: \${PROXY_IMAGE:-\${PROXY_REPOSITORY:-\${FORGE_REPOSITORY_OWNER:?Set it.}/forge-app}:\${PROXY_TAG:?}}`,
+      [
+        `image: "\${PROXY_IMAGE:-\\`,
+        `  \${PROXY_REPOSITORY:-\\`,
+        `  \${FORGE_IMAGE_NAMESPACE:-\\`,
+        `  \${FORGE_NAMESPACE:?Set it.}}/forge-php}\\`,
+        `  :\${PROXY_TAG:?}}"`,
+      ].join('\n'),
     ];
 
     expect(readRepositoryDefaults(fragments, `${GHCR}/acme`)).toStrictEqual({
       POSTGRES: 'postgres',
-      PROXY: `${GHCR}/acme/forge-app`,
+      PROXY: `${GHCR}/acme/forge-php`,
     });
+  });
+
+  it('read the suffix each fragment writes after its tag', () => {
+    const fragments = [
+      `image: \${POSTGRES_IMAGE:-postgres:\${POSTGRES_TAG:?Set it.}@\${POSTGRES_IMAGE_DIGEST:?Set it.}}`,
+      [
+        `image: "\${PROXY_IMAGE:-${packageName}-php\\`,
+        `  :\${PROXY_TAG:?Set it.}-app\\`,
+        `  @\${PROXY_IMAGE_DIGEST:?Set it.}}"`,
+      ].join('\n'),
+    ];
+
+    expect(readTagSuffixes(fragments)).toStrictEqual({
+      POSTGRES: '',
+      PROXY: '-app',
+    });
+  });
+});
+
+describe('the namespace forge\'s images are pulled from', () => {
+  it('is the one the project names', () => {
+    expect(readForgeImageNamespace({
+      FORGE_IMAGE_NAMESPACE: `${GHCR}/images`,
+      FORGE_NAMESPACE: `${GHCR}/acme`,
+    })).toBe(`${GHCR}/images`);
+  });
+
+  it('is the shared one where the project names no image namespace', () => {
+    expect(readForgeImageNamespace({
+      FORGE_FRAGMENT_NAMESPACE: `${GHCR}/fragments`,
+      FORGE_NAMESPACE: `${GHCR}/acme`,
+    })).toBe(`${GHCR}/acme`);
+  });
+
+  it('is Docker Hub where the project names none', () => {
+    expect(readForgeImageNamespace({})).toBe(`docker.io/${packageOrganization}`);
+  });
+});
+
+describe('the namespace forge\'s fragments are pulled from', () => {
+  it('is the one the project names', () => {
+    expect(readForgeFragmentNamespace({
+      FORGE_FRAGMENT_NAMESPACE: `${GHCR}/fragments`,
+      FORGE_NAMESPACE: `${GHCR}/acme`,
+    })).toBe(`${GHCR}/fragments`);
+  });
+
+  it('is the shared one where the project names no fragment namespace', () => {
+    expect(readForgeFragmentNamespace({
+      FORGE_IMAGE_NAMESPACE: `${GHCR}/images`,
+      FORGE_NAMESPACE: `${GHCR}/acme`,
+    })).toBe(`${GHCR}/acme`);
+  });
+
+  it('is Docker Hub where the project names none', () => {
+    expect(readForgeFragmentNamespace({})).toBe(`docker.io/${packageOrganization}`);
   });
 });
 
 describe('the reference a split pin stands for', () => {
   it.each([
     {
-      name: 'builds the command line image under forge\'s owner',
+      name: 'builds the command line image under forge\'s owner, tagged with its role',
       pin: {
         digest: DIGEST,
         digestKey: 'FORGE_CLI_IMAGE_DIGEST',
@@ -76,32 +147,13 @@ describe('the reference a split pin stands for', () => {
         FORGE_TAG: '1',
       },
       splitReference: {
-        reference: `${GHCR}/acme/forge:1@${DIGEST}`,
-        suffix: '',
+        reference: `${GHCR}/acme/forge:1-cli@${DIGEST}`,
+        suffix: '-cli',
         tagKey: 'FORGE_TAG',
       },
     },
     {
-      name: 'takes the command line image\'s name and suffix where they are set',
-      pin: {
-        digest: DIGEST,
-        digestKey: 'FORGE_CLI_IMAGE_DIGEST',
-        kind: <const>'image',
-        prefix: 'FORGE_CLI',
-      },
-      values: {
-        FORGE_CLI_IMAGE_NAME: 'forge-php',
-        FORGE_CLI_IMAGE_SUFFIX: '-chromium',
-        FORGE_TAG: '1',
-      },
-      splitReference: {
-        reference: `${GHCR}/acme/forge-php:1-chromium@${DIGEST}`,
-        suffix: '-chromium',
-        tagKey: 'FORGE_TAG',
-      },
-    },
-    {
-      name: 'builds the application image with its suffix',
+      name: 'takes the stack every image falls back to',
       pin: {
         digest: DIGEST,
         digestKey: 'FORGE_APP_IMAGE_DIGEST',
@@ -109,49 +161,66 @@ describe('the reference a split pin stands for', () => {
         prefix: 'FORGE_APP',
       },
       values: {
-        FORGE_APP_IMAGE_SUFFIX: '-dev',
+        FORGE_IMAGE_NAME: `${packageName}-php`,
         FORGE_TAG: '1',
       },
       splitReference: {
-        reference: `${GHCR}/acme/forge-app:1-dev@${DIGEST}`,
-        suffix: '-dev',
+        reference: `${GHCR}/acme/forge-php:1-app@${DIGEST}`,
+        suffix: '-app',
         tagKey: 'FORGE_TAG',
       },
     },
     {
-      name: 'builds the application image a project builds on, with the forge release and -dev',
+      name: 'prefers an image\'s own name to the stack',
       pin: {
         digest: DIGEST,
-        digestKey: 'FORGE_BUILD_IMAGE_DIGEST',
+        digestKey: 'FORGE_CLI_CHROMIUM_IMAGE_DIGEST',
         kind: <const>'image',
-        prefix: 'FORGE_BUILD',
+        prefix: 'FORGE_CLI_CHROMIUM',
       },
       values: {
-        FORGE_APP_IMAGE_SUFFIX: '',
+        FORGE_CLI_CHROMIUM_IMAGE_NAME: `${packageName}-bun`,
+        FORGE_IMAGE_NAME: `${packageName}-php`,
         FORGE_TAG: '1',
       },
       splitReference: {
-        reference: `${GHCR}/acme/forge-app:1-dev@${DIGEST}`,
-        suffix: '-dev',
+        reference: `${GHCR}/acme/forge-bun:1-cli-chromium@${DIGEST}`,
+        suffix: '-cli-chromium',
         tagKey: 'FORGE_TAG',
       },
     },
     {
-      name: 'builds the application image a project runs on, under the application image\'s name',
+      name: 'builds the development image a project builds on',
       pin: {
         digest: DIGEST,
-        digestKey: 'FORGE_RUNTIME_IMAGE_DIGEST',
+        digestKey: 'FORGE_APP_DEV_IMAGE_DIGEST',
         kind: <const>'image',
-        prefix: 'FORGE_RUNTIME',
+        prefix: 'FORGE_APP_DEV',
       },
       values: {
-        FORGE_APP_IMAGE_NAME: 'forge-bun-app',
         FORGE_TAG: '1',
       },
       splitReference: {
-        reference: `${GHCR}/acme/forge-bun-app:1@${DIGEST}`,
-        suffix: '',
+        reference: `${GHCR}/acme/forge:1-app-dev@${DIGEST}`,
+        suffix: '-app-dev',
         tagKey: 'FORGE_TAG',
+      },
+    },
+    {
+      name: 'appends the suffix the fragment writes after the image\'s own tag',
+      pin: {
+        digest: DIGEST,
+        digestKey: 'PROXY_IMAGE_DIGEST',
+        kind: <const>'image',
+        prefix: 'PROXY',
+      },
+      values: {
+        PROXY_TAG: '1.0',
+      },
+      splitReference: {
+        reference: `${GHCR}/acme/forge-php:1.0-app@${DIGEST}`,
+        suffix: '-app',
+        tagKey: 'PROXY_TAG',
       },
     },
     {
@@ -175,35 +244,34 @@ describe('the reference a split pin stands for', () => {
       name: 'tags a fragment with forge\'s release',
       pin: {
         digest: DIGEST,
-        digestKey: 'CLI_FRAGMENT_DIGEST',
+        digestKey: 'FORGE_CLI_FRAGMENT_DIGEST',
         kind: <const>'fragment',
-        prefix: 'CLI',
+        prefix: 'FORGE_CLI',
       },
       values: {
         FORGE_TAG: '2',
       },
       splitReference: {
-        reference: `${GHCR}/acme/forge/compose/cli:2@${DIGEST}`,
+        reference: `${GHCR}/acme/${packageName}-compose-cli:2@${DIGEST}`,
         suffix: '',
         tagKey: 'FORGE_TAG',
       },
     },
     {
-      name: 'tags a fragment with its own tag where one is set',
+      name: 'names a fragment by the pin without its forge prefix',
       pin: {
         digest: DIGEST,
-        digestKey: 'POSTGRES_FRAGMENT_DIGEST',
+        digestKey: 'FORGE_PHP_APP_DEV_FRAGMENT_DIGEST',
         kind: <const>'fragment',
-        prefix: 'POSTGRES',
+        prefix: 'FORGE_PHP_APP_DEV',
       },
       values: {
         FORGE_TAG: '2',
-        POSTGRES_FRAGMENT_TAG: '1',
       },
       splitReference: {
-        reference: `${GHCR}/acme/forge/compose/postgres:1@${DIGEST}`,
+        reference: `${GHCR}/acme/${packageName}-compose-php-app-dev:2@${DIGEST}`,
         suffix: '',
-        tagKey: 'POSTGRES_FRAGMENT_TAG',
+        tagKey: 'FORGE_TAG',
       },
     },
   ])('$name', (scenario) => {
@@ -225,11 +293,21 @@ describe('the reference a split pin stands for', () => {
       name: 'refuses an application image digest without the forge release',
       pin: {
         digest: DIGEST,
-        digestKey: 'FORGE_BUILD_IMAGE_DIGEST',
+        digestKey: 'FORGE_APP_DEV_IMAGE_DIGEST',
         kind: <const>'image',
-        prefix: 'FORGE_BUILD',
+        prefix: 'FORGE_APP_DEV',
       },
-      message: 'Variable "FORGE_TAG" not found, but "FORGE_BUILD_IMAGE_DIGEST" requires it.',
+      message: 'Variable "FORGE_TAG" not found, but "FORGE_APP_DEV_IMAGE_DIGEST" requires it.',
+    },
+    {
+      name: 'refuses a fragment digest without the forge prefix',
+      pin: {
+        digest: DIGEST,
+        digestKey: 'CLI_FRAGMENT_DIGEST',
+        kind: <const>'fragment',
+        prefix: 'CLI',
+      },
+      message: 'Fragment pin "CLI_FRAGMENT_DIGEST" must start with "FORGE_".',
     },
     {
       name: 'refuses an image nothing names the repository of',

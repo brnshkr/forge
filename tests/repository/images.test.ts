@@ -12,7 +12,9 @@ import {
 } from '#src/shared/tools/versions';
 
 import { objectEntries, readOwnValue } from '#src/shared/utils/object';
+import { packageName } from '#src/shared/utils/package-json';
 import { compileLinearPattern, readGroup } from '#src/shared/utils/pattern';
+import { toReference } from '#tests/support/dotenv';
 import { compareText, readRepositoryFile } from '#tests/support/repository';
 
 import type { Maybe, StringRecord } from '#src/shared/types/core';
@@ -22,15 +24,8 @@ const ADDITIVE_ARGUMENTS = <const>[
   'EXTRA_PHP_EXTENSIONS',
 ];
 
-const IMAGES_WITHOUT_PHP = new Set([
-  'forge-bun',
-  'forge-bun-app',
-]);
-
-const IMAGES_WITHOUT_BUN = new Set([
-  'forge-php',
-  'forge-php-app',
-]);
+const BUN_DOCKERFILE = 'docker/bun.Dockerfile';
+const PHP_DOCKERFILE = 'docker/php.Dockerfile';
 
 const TOOL_IMAGE_NAMES = <const>[
   'BUILDKIT_IMAGE',
@@ -51,13 +46,13 @@ const createReferencePattern = (): RegExp => /\$\{(?<name>\w+)\}/gv;
 const isPin = (buildArgument: string): boolean => PIN_NAMES.some((name) => buildArgument.startsWith(`${name}=`));
 
 const DOCKERFILES = new Map(await Promise.all(IMAGE_TARGETS.map(
-  async (imageTarget) => <const>[imageTarget.name, await readRepositoryFile(imageTarget.dockerfile)],
+  async (imageTarget) => <const>[imageTarget.dockerfile, await readRepositoryFile(imageTarget.dockerfile)],
 )));
 
-const IMAGE_NAMES = DOCKERFILES.keys().toArray();
+const DOCKERFILE_PATHS = DOCKERFILES.keys().toArray();
 
-const IMAGE_SCENARIOS = IMAGE_NAMES.map((image) => ({
-  image,
+const DOCKERFILE_SCENARIOS = DOCKERFILE_PATHS.map((dockerfile) => ({
+  dockerfile,
 }));
 
 const createArgumentDefaultPattern = (name: string): RegExp => compileLinearPattern(
@@ -65,18 +60,18 @@ const createArgumentDefaultPattern = (name: string): RegExp => compileLinearPatt
   'mv',
 );
 
-const readDockerfile = (image: string): string => {
-  const dockerfileText = DOCKERFILES.get(image);
+const readDockerfile = (dockerfile: string): string => {
+  const dockerfileText = DOCKERFILES.get(dockerfile);
 
   if (dockerfileText === undefined) {
-    throw new Error(`No image target names "${image}".`);
+    throw new Error(`No image target builds "${dockerfile}".`);
   }
 
   return dockerfileText;
 };
 
-const readArgumentDefault = (image: string, argumentName: string): Maybe<string> => {
-  const groups = createArgumentDefaultPattern(argumentName).exec(readDockerfile(image))?.groups;
+const readArgumentDefault = (dockerfile: string, argumentName: string): Maybe<string> => {
+  const groups = createArgumentDefaultPattern(argumentName).exec(readDockerfile(dockerfile))?.groups;
 
   if (groups === undefined) {
     return undefined;
@@ -90,11 +85,11 @@ const readArgumentDefault = (image: string, argumentName: string): Maybe<string>
     .trim();
 };
 
-const resolveArguments = (image: string, text: string): string => text.replaceAll(
+const resolveArguments = (dockerfile: string, text: string): string => text.replaceAll(
   createReferencePattern(),
   (_match: string, ...captures: unknown[]) => {
     const name = readGroup(<StringRecord>captures.at(-1), 'name');
-    const value = PINS.get(name) ?? readArgumentDefault(image, name);
+    const value = PINS.get(name) ?? readArgumentDefault(dockerfile, name);
 
     if (value === undefined) {
       throw new Error(`Variable "${name}" not found.`);
@@ -104,12 +99,12 @@ const resolveArguments = (image: string, text: string): string => text.replaceAl
   },
 );
 
-const collectPulledReferences = (image: string): string[] => readDockerfile(image)
+const collectPulledReferences = (dockerfile: string): string[] => readDockerfile(dockerfile)
   .matchAll(/^FROM (?<reference>\S+@\S+)/gmv)
-  .map((match) => resolveArguments(image, readGroup(match.groups, 'reference')))
+  .map((match) => resolveArguments(dockerfile, readGroup(match.groups, 'reference')))
   .toArray();
 
-const collectStageUsers = (image: string): Map<string, Maybe<string>> => new Map(readDockerfile(image)
+const collectStageUsers = (dockerfile: string): Map<string, Maybe<string>> => new Map(readDockerfile(dockerfile)
   .split(/^(?=FROM )/mv)
   .flatMap((section) => {
     const stageGroups = createStageNamePattern().exec(section)?.groups;
@@ -124,13 +119,13 @@ const collectStageUsers = (image: string): Map<string, Maybe<string>> => new Map
       : [
         <const>[
           readGroup(stageGroups, 'name'),
-          lastUser === undefined ? undefined : resolveArguments(image, readGroup(lastUser.groups, 'user')),
+          lastUser === undefined ? undefined : resolveArguments(dockerfile, readGroup(lastUser.groups, 'user')),
         ],
       ];
   }));
 
 const EVERY_DECLARED_ARGUMENT = [
-  ...new Set(IMAGE_NAMES.flatMap((image) => readArgumentNames(readDockerfile(image)))),
+  ...new Set(DOCKERFILE_PATHS.flatMap((dockerfile) => readArgumentNames(readDockerfile(dockerfile)))),
 ].toSorted(compareText);
 
 describe('build arguments', () => {
@@ -144,7 +139,7 @@ describe('build arguments', () => {
   });
 
   it.each(IMAGE_TARGETS)('$name/$target receives every pin its Dockerfile declares, as .env pins it', (scenario) => {
-    const declaredNames = new Set(readArgumentNames(readDockerfile(scenario.name)));
+    const declaredNames = new Set(readArgumentNames(readDockerfile(scenario.dockerfile)));
 
     const declaredPins = PIN_NAMES
       .filter((name) => declaredNames.has(name))
@@ -154,21 +149,21 @@ describe('build arguments', () => {
       .toStrictEqual(declaredPins);
   });
 
-  it.each(IMAGE_SCENARIOS)('$image takes no default that .env already pins', (scenario) => {
+  it.each(DOCKERFILE_SCENARIOS)('$dockerfile takes no default that .env already pins', (scenario) => {
     for (const name of PIN_NAMES) {
-      expect(`\n${readDockerfile(scenario.image)}`).not.toContain(`\nARG ${name}=`);
+      expect(`\n${readDockerfile(scenario.dockerfile)}`).not.toContain(`\nARG ${name}=`);
     }
   });
 });
 
 describe('the escape hatch', () => {
-  it.each(IMAGE_SCENARIOS)('$image adds nothing of its own to what a consumer appends', (scenario) => {
-    const additiveArguments = IMAGES_WITHOUT_PHP.has(scenario.image)
+  it.each(DOCKERFILE_SCENARIOS)('$dockerfile adds nothing of its own to what a consumer appends', (scenario) => {
+    const additiveArguments = scenario.dockerfile === BUN_DOCKERFILE
       ? ADDITIVE_ARGUMENTS.filter((name) => name !== 'EXTRA_PHP_EXTENSIONS')
       : ADDITIVE_ARGUMENTS;
 
     for (const name of additiveArguments) {
-      expect(readArgumentDefault(scenario.image, name)).toBe('');
+      expect(readArgumentDefault(scenario.dockerfile, name)).toBe('');
     }
   });
 });
@@ -191,15 +186,15 @@ describe('pinned images', () => {
     return resolveReferences(toolReference, ENVIRONMENT);
   });
 
-  it.each(IMAGE_SCENARIOS)('$image pulls nothing that .env does not pin', (scenario) => {
-    for (const reference of collectPulledReferences(scenario.image)) {
+  it.each(DOCKERFILE_SCENARIOS)('$dockerfile pulls nothing that .env does not pin', (scenario) => {
+    for (const reference of collectPulledReferences(scenario.dockerfile)) {
       expect(PINNED_REFERENCES).toContain(reference);
     }
   });
 
   it('every pinned image is pulled by some image or run as a tool', () => {
     const pulledReferences = new Set([
-      ...IMAGE_NAMES.flatMap((image) => collectPulledReferences(image)),
+      ...DOCKERFILE_PATHS.flatMap((dockerfile) => collectPulledReferences(dockerfile)),
       ...TOOL_REFERENCES,
     ]);
 
@@ -209,37 +204,45 @@ describe('pinned images', () => {
 
 describe('the stages', () => {
   it.each(IMAGE_TARGETS)('$name/$target ends as an unprivileged user', (scenario) => {
-    expect(collectStageUsers(scenario.name).get(scenario.target)).toMatch(/^[1-9]\d*:[1-9]\d*$/v);
+    expect(collectStageUsers(scenario.dockerfile).get(scenario.target)).toMatch(/^[1-9]\d*:[1-9]\d*$/v);
   });
 
-  it.each(IMAGE_SCENARIOS)('$image has a stage that publishes without a suffix', (scenario) => {
-    const unsuffixedTargets = IMAGE_TARGETS.filter((imageTarget) => imageTarget.name === scenario.image
-      && imageTarget.suffix === '');
-
-    expect(unsuffixedTargets).toHaveLength(1);
+  it.each(IMAGE_TARGETS)('$name/$target publishes under its target as tag suffix', (scenario) => {
+    expect(scenario.suffix).toBe(`-${scenario.target}`);
   });
 });
 
 describe('the PHP-only images', () => {
-  it.each([...IMAGES_WITHOUT_BUN])('$image does not include Bun', (image) => {
-    expect(readDockerfile(image)).not.toContain('BUN_VERSION');
-    expect(readDockerfile(image)).not.toContain('/usr/local/bin/bun');
-  });
+  it.each(IMAGE_TARGETS.filter((imageTarget) => imageTarget.name === `${packageName}-php`))(
+    '$name/$target builds without Bun',
+    (scenario) => {
+      expect(scenario.dockerfile).toBe(PHP_DOCKERFILE);
+      expect(scenario.arguments).toContain('HAS_BUN=false');
+    },
+  );
 });
 
-describe('the combined app image', () => {
-  it('ships PHP and Bun in the same runtime family', () => {
-    const dockerfileText = readDockerfile('forge-app');
+describe('the combined images', () => {
+  it.each(IMAGE_TARGETS.filter((imageTarget) => imageTarget.name === packageName))(
+    '$name/$target builds with Bun',
+    (scenario) => {
+      expect(scenario.dockerfile).toBe(PHP_DOCKERFILE);
+      expect(scenario.arguments).not.toContain('HAS_BUN=false');
+    },
+  );
 
-    expect(dockerfileText).toContain('FROM oven/bun:');
-    expect(dockerfileText).toContain('FROM dunglas/frankenphp:');
-    expect(dockerfileText).toContain('COPY --link --from=bun /usr/local/bin/bun /usr/local/bin/bun');
+  it('copy Bun from its image only where HAS_BUN selects it', () => {
+    const dockerfileText = readDockerfile(PHP_DOCKERFILE);
+
+    expect(dockerfileText).toContain('FROM scratch AS bun-false');
+    expect(dockerfileText).toContain('COPY --link --from=bun-image /usr/local/bin/bun /usr/local/bin/bun');
+    expect(dockerfileText).toContain(`FROM bun-${toReference('HAS_BUN')} AS bun`);
   });
 });
 
 describe('the Bun-only images', () => {
-  it.each([...IMAGES_WITHOUT_PHP])('$image does not include PHP', (image) => {
-    expect(readDockerfile(image)).not.toMatch(/^FROM (?:dunglas\/frankenphp|php):/mv);
-    expect(readDockerfile(image)).not.toContain('PHP_VERSION');
+  it('build from a Dockerfile without PHP', () => {
+    expect(readDockerfile(BUN_DOCKERFILE)).not.toMatch(/^FROM (?:dunglas\/frankenphp|php):/mv);
+    expect(readDockerfile(BUN_DOCKERFILE)).not.toContain('PHP_VERSION');
   });
 });

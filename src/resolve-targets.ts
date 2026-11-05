@@ -31,6 +31,21 @@ interface BuildTargets {
   readonly imageTargets: readonly ImageTarget[];
 }
 
+interface ImageOutput {
+  readonly arguments: string;
+  readonly cache: string;
+  readonly dockerfile: string;
+  readonly name: string;
+  readonly tags: string;
+  readonly target: string;
+}
+
+interface ImageOutputs {
+  readonly all: readonly ImageOutput[];
+  readonly firstWave: readonly ImageOutput[];
+  readonly secondWave: readonly ImageOutput[];
+}
+
 interface StagingOutput extends DeployTarget {
   readonly target: string;
 }
@@ -90,6 +105,53 @@ const createStagingOutputs = (
   }));
 
 /**
+ * @throws {Error}
+ */
+const isImageGroupingOn = (value: string): boolean => {
+  if (!['', 'false', 'true'].includes(value)) {
+    throw new Error(`Option "group-image-builds" must be "true" or "false", "${value}" given.`);
+  }
+
+  return value === 'true';
+};
+
+const readFirstWaveIndexes = (
+  imageTargets: readonly ImageTarget[],
+  isGroupingImageBuilds: boolean,
+): ReadonlySet<number> => {
+  if (!isGroupingImageBuilds) {
+    return new Set(imageTargets.keys());
+  }
+
+  const baseKeys = imageTargets.map((imageTarget) => `${imageTarget.dockerfile}\0${imageTarget.base}`);
+
+  return new Set(baseKeys.flatMap((baseKey, index) => (baseKeys.indexOf(baseKey) === index ? [index] : [])));
+};
+
+const createImageOutputs = (
+  imageTargets: readonly ImageTarget[],
+  versionOutputs: VersionOutputs,
+  isGroupingImageBuilds: boolean,
+): ImageOutputs => {
+  const all = imageTargets.map((imageTarget) => ({
+    arguments: imageTarget.arguments.join('\n'),
+    cache: isGroupingImageBuilds ? imageTarget.dockerfile : `${imageTarget.name}-${imageTarget.target}`,
+    dockerfile: imageTarget.dockerfile,
+    name: imageTarget.name,
+    tags: versionOutputs.createTags(imageTarget).join('\n'),
+    target: imageTarget.target,
+  }));
+
+  const firstWaveIndexes = readFirstWaveIndexes(imageTargets, isGroupingImageBuilds);
+
+  return {
+    all,
+    firstWave: all.filter((_imageOutput, index) => firstWaveIndexes.has(index)),
+    secondWave: all.filter((_imageOutput, index) => !firstWaveIndexes.has(index)),
+  };
+};
+
+/**
  * @rejects {Error}
  */
 const readBuildTargets = async (directory: string, chosenDeployTargets: readonly string[]): Promise<BuildTargets> => {
@@ -109,10 +171,13 @@ const readBuildTargets = async (directory: string, chosenDeployTargets: readonly
 export const main = async (argv: readonly string[], directory: string): Promise<number> => {
   const options = readStringArguments(argv, [
     'deploy-targets',
+    'group-image-builds',
     'namespace',
     'reference',
     'registry',
   ]);
+
+  const isGroupingImageBuilds = isImageGroupingOn(options['group-image-builds']);
 
   const [
     branchVersion,
@@ -142,13 +207,7 @@ export const main = async (argv: readonly string[], directory: string): Promise<
     packageTargets.packagist !== '',
   );
 
-  const imageOutputs = buildTargets.imageTargets.map((imageTarget) => ({
-    arguments: imageTarget.arguments.join('\n'),
-    dockerfile: imageTarget.dockerfile,
-    name: imageTarget.name,
-    tags: versionOutputs.createTags(imageTarget).join('\n'),
-    target: imageTarget.target,
-  }));
+  const imageOutputs = createImageOutputs(buildTargets.imageTargets, versionOutputs, isGroupingImageBuilds);
 
   const releaseOutput = {
     fragments: fragmentFiles.join(' '),
@@ -158,8 +217,10 @@ export const main = async (argv: readonly string[], directory: string): Promise<
 
   process.stdout.write([
     `deploy=${JSON.stringify(buildTargets.deployTargets)}`,
-    `images=${JSON.stringify(imageOutputs)}`,
+    `first-wave-images=${JSON.stringify(imageOutputs.firstWave)}`,
+    `images=${JSON.stringify(imageOutputs.all)}`,
     `release=${JSON.stringify(releaseOutput)}`,
+    `second-wave-images=${JSON.stringify(imageOutputs.secondWave)}`,
     `staging=${JSON.stringify(createStagingOutputs(buildTargets.deployTargets))}`,
     '',
   ].join('\n'));

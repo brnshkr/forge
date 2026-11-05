@@ -1,7 +1,6 @@
-# 🗝️ Valkey [🔍](../../compose/valkey.yaml 'Go to source')
+# 🔑 Valkey [🔍](../../compose/valkey.yaml 'Go to source')
 
-`forge/compose/valkey` runs Valkey with its data in the volume `forge-valkey-data`.
-It writes every change to an append-only file once a second, so a crash loses about a second of sessions and messages.
+`valkey` runs a Valkey server for your app's cache, sessions, or queues.
 
 ## Usage
 
@@ -9,41 +8,34 @@ It writes every change to an append-only file once a second, so a crash loses ab
 # ./conf/compose.yaml
 
 include:
-  - path: oci://${FORGE_REPOSITORY}/compose/valkey:${VALKEY_FRAGMENT_TAG:-${FORGE_TAG:?}}@${VALKEY_FRAGMENT_DIGEST:?}
+  - path: oci://${FORGE_FRAGMENT_NAMESPACE:-${FORGE_NAMESPACE:?}}/forge-compose-valkey:${FORGE_TAG:?}@${FORGE_VALKEY_FRAGMENT_DIGEST:?}
 ```
 
-```dotenv
+```ini
 # ./.env
 
-VALKEY_URL=valkey://valkey:6379
+COMPOSE_PROJECT_NAME=acme-shop
+
+VALKEY_TAG=<tag>
+VALKEY_IMAGE_DIGEST=sha256:<digest> # <version>
+FORGE_VALKEY_FRAGMENT_DIGEST=sha256:<digest> # <version>
 ```
+
+The container is `acme-shop-valkey`. Your app reaches it at the host `valkey`, port `6379`.
+It publishes no port on your machine. It writes an append-only file every second to the volume `forge-valkey-data`.
+Once full, it refuses writes instead of dropping keys.
+
+On a server, `DEPLOY_SHARED_SERVICES=valkey` runs one Valkey for every project there.
+Each project then needs `VALKEY_PASSWORD`. Take a look at [shared services](../deploy/shared.md).
 
 ## Customizing
 
-```dotenv
-# ./.env.production
+| Variable | Changes |
+| --- | --- |
+| `VALKEY_MAXMEMORY` | how much memory Valkey keeps data in |
+| `VALKEY_MAXMEMORY_POLICY` | what Valkey does once that memory is full |
+| `VALKEY_REPOSITORY` | where the image comes from |
+| `VALKEY_CONTAINER_MEMORY_LIMIT` | how much memory the service may use |
+| `VALKEY_CONTAINER_PIDS_LIMIT` | how many processes the service may start |
 
-VALKEY_MAXMEMORY=512mb
-VALKEY_CONTAINER_MEMORY_LIMIT=1g
-```
-
-`VALKEY_MAXMEMORY` caps what Valkey stores; when full it refuses writes rather than lose a session or message.
-Keep `VALKEY_CONTAINER_MEMORY_LIMIT` at about twice that, since rewriting the append-only file forks the process.
-`VALKEY_MAXMEMORY_POLICY=allkeys-lru` suits a Valkey that only caches.
-
-A second Valkey extends the one you include, with a name, container, and volume of its own:
-
-```yaml
-# ./conf/compose.prod.yaml
-
-services:
-  valkey-sessions:
-    extends:
-      service: valkey
-    container_name: ${COMPOSE_PROJECT_NAME}-valkey-sessions
-    volumes: !override
-      - forge-valkey-sessions-data:/data
-
-volumes:
-  forge-valkey-sessions-data: ~
-```
+The defaults are in [`valkey.yaml`](../../compose/valkey.yaml).

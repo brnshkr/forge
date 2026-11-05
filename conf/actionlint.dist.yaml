@@ -3,6 +3,8 @@
 config-variables:
   - DEPLOY_KNOWN_HOSTS
   - MINIMUM_RELEASE_AGE
+  - MIRROR_NAMESPACE
+  - MIRROR_REGISTRY
   - RUNNER_IMAGE
 
 paths:

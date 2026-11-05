@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { main } from '#src/bump-images';
 import { DOCKER_HUB, GHCR } from '#src/shared/registry';
 import { STATUS_CODE } from '#src/shared/utils/http';
+import { packageOrganization } from '#src/shared/utils/package-json';
 import { createDigest } from '#tests/support/digest';
 import { captureWrites } from '#tests/support/output';
 import { createDigestResponse, serveRegistry } from '#tests/support/registry';
@@ -27,40 +28,33 @@ const NO_RELEASE_AGE = {
 
 const TAG_LISTS = new Map([
   [
-    '/v2/acme/forge/compose/mailpit/tags/list',
+    '/v2/acme/forge-compose-mailpit/tags/list',
     ['1'],
   ],
   [
     '/v2/acme/forge/tags/list',
     [
-      '1-dev',
-      '1.2-dev',
-      '1.2.3-dev',
+      '1-cli',
+      '1.2-cli',
+      '1.2.3-cli',
     ],
   ],
   [
     '/v2/acme/layered-app/tags/list',
     [
-      '1.2',
-      '1.2-dev',
-      '1.3',
-      '1.3-dev',
+      '1.2-app',
+      '1.2-app-dev',
+      '1.2-cli',
+      '1.3-app',
+      '1.3-app-dev',
+      '1.3-cli',
     ],
   ],
   [
     '/v2/acme/layered/tags/list',
     [
-      '1.2',
-      '1.2-dev',
-      '1.3',
-      '1.3-dev',
-    ],
-  ],
-  [
-    '/v2/brnshkr/forge/tags/list',
-    [
-      '1',
-      '1.2',
+      '1.2-cli',
+      '1.3-cli',
     ],
   ],
   [
@@ -79,47 +73,46 @@ const TAG_LISTS = new Map([
       '1.1-acme',
     ],
   ],
+  [
+    `/v2/${packageOrganization}/forge/tags/list`,
+    [
+      '1-cli',
+      '1.2-cli',
+    ],
+  ],
 ]);
 
 const DIGESTS = new Map([
   [
-    '/v2/acme/forge/compose/mailpit/manifests/1',
+    '/v2/acme/forge-compose-mailpit/manifests/1',
     OLD_DIGEST,
   ],
   [
-    '/v2/acme/forge/manifests/1-dev',
+    '/v2/acme/forge/manifests/1-cli',
     NEW_DIGEST,
   ],
   [
-    '/v2/acme/forge/manifests/1.2-dev',
+    '/v2/acme/forge/manifests/1.2-cli',
     NEW_DIGEST,
   ],
   [
-    '/v2/acme/forge/manifests/1.2.3-dev',
+    '/v2/acme/forge/manifests/1.2.3-cli',
     OTHER_DIGEST,
   ],
   [
-    '/v2/acme/layered-app/manifests/1.3-dev',
+    '/v2/acme/layered-app/manifests/1.3-app-dev',
     OTHER_DIGEST,
   ],
   [
-    '/v2/acme/layered-app/manifests/1.3',
+    '/v2/acme/layered-app/manifests/1.3-app',
     NEW_DIGEST,
   ],
   [
-    '/v2/acme/layered/manifests/1.3-dev',
+    '/v2/acme/layered-app/manifests/1.3-cli',
     OTHER_DIGEST,
   ],
   [
-    '/v2/acme/layered/manifests/1.3',
-    NEW_DIGEST,
-  ],
-  [
-    '/v2/brnshkr/forge/manifests/1.2',
-    NEW_DIGEST,
-  ],
-  [
-    '/v2/brnshkr/forge/manifests/1',
+    '/v2/acme/layered/manifests/1.3-cli',
     NEW_DIGEST,
   ],
   [
@@ -134,18 +127,26 @@ const DIGESTS = new Map([
     '/v2/valkey/valkey/manifests/1.1-acme',
     NEW_DIGEST,
   ],
+  [
+    `/v2/${packageOrganization}/forge/manifests/1-cli`,
+    NEW_DIGEST,
+  ],
+  [
+    `/v2/${packageOrganization}/forge/manifests/1.2-cli`,
+    NEW_DIGEST,
+  ],
 ]);
 
 const PROJECT_FILES = {
   '.env': [
-    `FORGE_REPOSITORY=${GHCR}/acme/forge`,
+    `FORGE_NAMESPACE=${GHCR}/acme`,
     'FORGE_TAG=1',
-    `MAILPIT_FRAGMENT_DIGEST=${OLD_DIGEST}`,
+    `FORGE_MAILPIT_FRAGMENT_DIGEST=${OLD_DIGEST}`,
     `POSTGRES_IMAGE=postgres:1.1-acme@${OLD_DIGEST}`,
     '',
   ].join('\n'),
   '.env.dev': 'APP_DEBUG=1\n',
-  '.env.prod': `FORGE_CLI_IMAGE_SUFFIX=-dev\nFORGE_CLI_IMAGE_DIGEST=${OLD_DIGEST}\n`,
+  '.env.prod': `FORGE_CLI_IMAGE_DIGEST=${OLD_DIGEST}\n`,
   'compose.yaml': [
     'services:',
     '  database:',
@@ -206,9 +207,9 @@ describe('the bump-images script', () => {
     )).resolves.toBe(0);
 
     await expect(file(path.join(directory, '.env')).text()).resolves.toBe([
-      `FORGE_REPOSITORY=${GHCR}/acme/forge`,
+      `FORGE_NAMESPACE=${GHCR}/acme`,
       'FORGE_TAG=1',
-      `MAILPIT_FRAGMENT_DIGEST=${OLD_DIGEST} # 1`,
+      `FORGE_MAILPIT_FRAGMENT_DIGEST=${OLD_DIGEST} # 1`,
       `POSTGRES_IMAGE=postgres:1.2-acme@${NEW_DIGEST} # 1.2.1`,
       '',
     ].join('\n'));
@@ -217,7 +218,7 @@ describe('the bump-images script', () => {
 
     await expect(file(path.join(directory, '.env.prod')).text())
       .resolves
-      .toBe(`FORGE_CLI_IMAGE_SUFFIX=-dev\nFORGE_CLI_IMAGE_DIGEST=${NEW_DIGEST} # 1.2\n`);
+      .toBe(`FORGE_CLI_IMAGE_DIGEST=${NEW_DIGEST} # 1.2\n`);
 
     await expect(file(path.join(directory, 'compose.yaml')).text())
       .resolves
@@ -229,8 +230,8 @@ describe('the bump-images script', () => {
 
   it('resolves a split pin from its own file over .env and writes a moved tag where its value came from', async () => {
     const directory = await createRepository({
-      '.env': `FORGE_REPOSITORY=${GHCR}/acme/forge\nFORGE_CLI_IMAGE_NAME=layered\nFORGE_APP_IMAGE_NAME=layered-app\nFORGE_TAG=1.2\nFORGE_CLI_IMAGE_DIGEST=${OLD_DIGEST}\n`,
-      '.env.prod': `FORGE_CLI_IMAGE_SUFFIX=-dev\nFORGE_CLI_IMAGE_DIGEST=${OLD_DIGEST}\n`,
+      '.env': `FORGE_NAMESPACE=${GHCR}/acme\nFORGE_CLI_IMAGE_NAME=layered\nFORGE_TAG=1.2\nFORGE_CLI_IMAGE_DIGEST=${OLD_DIGEST}\n`,
+      '.env.prod': `FORGE_CLI_IMAGE_NAME=layered-app\nFORGE_CLI_IMAGE_DIGEST=${OLD_DIGEST}\n`,
     });
 
     const standardOutputWrites = captureWrites(process.stdout);
@@ -245,20 +246,19 @@ describe('the bump-images script', () => {
     await expect(file(path.join(directory, '.env')).text())
       .resolves
       .toBe([
-        `FORGE_REPOSITORY=${GHCR}/acme/forge\n`,
+        `FORGE_NAMESPACE=${GHCR}/acme\n`,
         'FORGE_CLI_IMAGE_NAME=layered\n',
-        'FORGE_APP_IMAGE_NAME=layered-app\n',
         'FORGE_TAG=1.3\n',
         `FORGE_CLI_IMAGE_DIGEST=${NEW_DIGEST} # 1.3\n`,
       ].join(''));
 
     await expect(file(path.join(directory, '.env.prod')).text())
       .resolves
-      .toBe(`FORGE_CLI_IMAGE_SUFFIX=-dev\nFORGE_CLI_IMAGE_DIGEST=${OTHER_DIGEST} # 1.3\n`);
+      .toBe(`FORGE_CLI_IMAGE_NAME=layered-app\nFORGE_CLI_IMAGE_DIGEST=${OTHER_DIGEST} # 1.3\n`);
 
     expect(standardOutputWrites).toStrictEqual([
-      `${GHCR}/acme/layered in .env: 1.2 -> 1.3\n`,
-      `${GHCR}/acme/layered in .env.prod: 1.2-dev -> 1.3-dev\n`,
+      `${GHCR}/acme/layered in .env: 1.2-cli -> 1.3-cli\n`,
+      `${GHCR}/acme/layered-app in .env.prod: 1.2-cli -> 1.3-cli\n`,
     ]);
   });
 
@@ -304,8 +304,8 @@ describe('the bump-images script', () => {
 
   it('moves the application images a stage builds and runs on together with the forge release .env pins', async () => {
     const directory = await createRepository({
-      '.env': `FORGE_REPOSITORY=${GHCR}/acme/forge\nFORGE_CLI_IMAGE_NAME=layered\nFORGE_APP_IMAGE_NAME=layered-app\nFORGE_TAG=1.2\nFORGE_CLI_IMAGE_DIGEST=${OLD_DIGEST}\n`,
-      '.env.prod': `FORGE_BUILD_IMAGE_DIGEST=${OLD_DIGEST}\nFORGE_RUNTIME_IMAGE_DIGEST=${OLD_DIGEST}\n`,
+      '.env': `FORGE_NAMESPACE=${GHCR}/acme\nFORGE_CLI_IMAGE_NAME=layered\nFORGE_IMAGE_NAME=layered-app\nFORGE_TAG=1.2\nFORGE_CLI_IMAGE_DIGEST=${OLD_DIGEST}\n`,
+      '.env.prod': `FORGE_APP_DEV_IMAGE_DIGEST=${OLD_DIGEST}\nFORGE_APP_IMAGE_DIGEST=${OLD_DIGEST}\n`,
     });
 
     const standardOutputWrites = captureWrites(process.stdout);
@@ -320,21 +320,21 @@ describe('the bump-images script', () => {
     await expect(file(path.join(directory, '.env')).text())
       .resolves
       .toBe([
-        `FORGE_REPOSITORY=${GHCR}/acme/forge\n`,
+        `FORGE_NAMESPACE=${GHCR}/acme\n`,
         'FORGE_CLI_IMAGE_NAME=layered\n',
-        'FORGE_APP_IMAGE_NAME=layered-app\n',
+        'FORGE_IMAGE_NAME=layered-app\n',
         'FORGE_TAG=1.3\n',
         `FORGE_CLI_IMAGE_DIGEST=${NEW_DIGEST} # 1.3\n`,
       ].join(''));
 
     await expect(file(path.join(directory, '.env.prod')).text())
       .resolves
-      .toBe(`FORGE_BUILD_IMAGE_DIGEST=${OTHER_DIGEST} # 1.3\nFORGE_RUNTIME_IMAGE_DIGEST=${NEW_DIGEST} # 1.3\n`);
+      .toBe(`FORGE_APP_DEV_IMAGE_DIGEST=${OTHER_DIGEST} # 1.3\nFORGE_APP_IMAGE_DIGEST=${NEW_DIGEST} # 1.3\n`);
 
     expect(standardOutputWrites).toStrictEqual([
-      `${GHCR}/acme/layered in .env: 1.2 -> 1.3\n`,
-      `${GHCR}/acme/layered-app in .env.prod: 1.2-dev -> 1.3-dev\n`,
-      `${GHCR}/acme/layered-app in .env.prod: 1.2 -> 1.3\n`,
+      `${GHCR}/acme/layered in .env: 1.2-cli -> 1.3-cli\n`,
+      `${GHCR}/acme/layered-app in .env.prod: 1.2-app-dev -> 1.3-app-dev\n`,
+      `${GHCR}/acme/layered-app in .env.prod: 1.2-app -> 1.3-app\n`,
     ]);
   });
 
@@ -381,7 +381,7 @@ describe('the bump-images script', () => {
 
     await expect(file(path.join(directory, '.env.prod')).text())
       .resolves
-      .toBe(`FORGE_CLI_IMAGE_SUFFIX=-dev\nFORGE_CLI_IMAGE_DIGEST=${NEW_DIGEST} # 1.2\n`);
+      .toBe(`FORGE_CLI_IMAGE_DIGEST=${NEW_DIGEST} # 1.2\n`);
 
     expect(standardErrorWrites.join(''))
       .toMatch(/^Unable to write file "\.env": .+\nUnable to write file "compose\.yaml": .+\n$/v);
@@ -401,7 +401,7 @@ describe('the bump-images script', () => {
         },
       }),
       '.env': [
-        `FORGE_REPOSITORY=${GHCR}/brnshkr/forge`,
+        `FORGE_NAMESPACE=${GHCR}/${packageOrganization}`,
         'FORGE_TAG=1',
         `FORGE_CLI_IMAGE_DIGEST=${OLD_DIGEST}`,
         'MINIMUM_RELEASE_AGE=86400',
@@ -424,7 +424,7 @@ describe('the bump-images script', () => {
     )).resolves.toBe(0);
 
     await expect(file(path.join(directory, '.env')).text()).resolves.toBe([
-      `FORGE_REPOSITORY=${GHCR}/brnshkr/forge`,
+      `FORGE_NAMESPACE=${GHCR}/${packageOrganization}`,
       'FORGE_TAG=1',
       `FORGE_CLI_IMAGE_DIGEST=${NEW_DIGEST} # 1.2`,
       'MINIMUM_RELEASE_AGE=86400',
@@ -437,7 +437,7 @@ describe('the bump-images script', () => {
 
     expect(standardOutputWrites).toStrictEqual([
       'postgres in .env: 1.1-acme -> 1.2-acme\n',
-      `${GHCR}/brnshkr/forge in .env: sha256:000000000000 -> sha256:111111111111\n`,
+      `${GHCR}/${packageOrganization}/forge in .env: sha256:000000000000 -> sha256:111111111111\n`,
     ]);
 
     await expect(readSeenReferences(seenFile)).resolves.toStrictEqual({

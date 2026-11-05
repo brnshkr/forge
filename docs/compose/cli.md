@@ -1,7 +1,6 @@
-# 🧰 CLI [🔍](../../compose/cli.yaml 'Go to source')
+# ⌨️ CLI [🔍](../../compose/cli.yaml 'Go to source')
 
-`forge/compose/cli` runs Forge's toolchain image for a library or tool: it mounts your project at `/app`
-and waits, so your tools run inside it.
+`cli` runs the tools of a library or tool on the `-cli` image. `cli-chromium` adds a browser for tests.
 
 ## Usage
 
@@ -9,43 +8,44 @@ and waits, so your tools run inside it.
 # ./conf/compose.yaml
 
 include:
-  - path: oci://${FORGE_REPOSITORY}/compose/cli:${CLI_FRAGMENT_TAG:-${FORGE_TAG:?}}@${CLI_FRAGMENT_DIGEST:?}
+  - path: oci://${FORGE_FRAGMENT_NAMESPACE:-${FORGE_NAMESPACE:?}}/forge-compose-cli:${FORGE_TAG:?}@${FORGE_CLI_FRAGMENT_DIGEST:?}
 ```
 
-```dotenv
+```ini
 # ./.env
 
 FORGE_TAG=<tag>
 FORGE_CLI_IMAGE_DIGEST=sha256:<digest> # <version>
-CLI_FRAGMENT_DIGEST=sha256:<digest> # <version>
+FORGE_CLI_FRAGMENT_DIGEST=sha256:<digest> # <version>
 ```
 
-Run a tool in it with Compose:
+For browser tests, include `cli-chromium` instead. Its pins are `FORGE_CLI_CHROMIUM_IMAGE_DIGEST`
+and `FORGE_CLI_CHROMIUM_FRAGMENT_DIGEST`. Both run the service `cli`.
+
+The service mounts your working copy read-write at `/app` and runs as `HOST_UID` and `HOST_GID`.
+Its home `/home/forge` lives in the volume `forge-home`. Git settings and shell history survive there.
+`host.docker.internal` reaches your machine, for step debugging.
+
+[🛠️ `make`](https://github.com/brnshkr/config/blob/master/docs/Makefile.md) runs every tool in `cli`
+when the project has no `php-app` or `bun-app`. `make shell` opens a shell in it.
+
+### Without the shared Makefile
 
 ```sh
-docker compose --file ./conf/compose.yaml run --rm cli composer install
+HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose --env-file ./.env --file ./conf/compose.yaml run --rm cli sh
 ```
-
-[`@brnshkr/config`](https://github.com/brnshkr/config)'s Makefile runs every tool there by itself where your project
-has no `app` service, so `make ci` and `make shell` need no setting.
 
 ## Customizing
 
-Pick the image by its name and tag suffix:
+| Variable | Falls back to | Changes |
+| --- | --- | --- |
+| `CLI_COMMAND` | — | how the service waits |
+| `CLI_CONTAINER_MEMORY_LIMIT` | — | how much memory the service may use |
+| `CLI_CONTAINER_PIDS_LIMIT` | — | how many processes the service may start |
+| `HOST_APP_DIR` | the current directory | what is mounted at `/app` |
+| `HOST_UID`, `HOST_GID` | — | who writes the mounted directory |
 
-```dotenv
-# ./.env
+The defaults are in [`cli.yaml`](../../compose/cli.yaml).
 
-FORGE_CLI_IMAGE_NAME=forge-php
-FORGE_CLI_IMAGE_SUFFIX=-chromium
-```
-
-| Image | Holds |
-| --- | --- |
-| `forge` | PHP, Composer, and Bun |
-| `forge-php` | PHP and Composer |
-| `forge-bun` | Bun |
-
-Each one also comes as `-chromium` for browser tests ([Images docs](../images/index.md)).
-`FORGE_COMMAND` replaces the command it waits with, and `CLI_CONTAINER_MEMORY_LIMIT` and `CLI_CONTAINER_PIDS_LIMIT`
-its limits. Your Git settings and shell history live in the volume `forge-home`, so they survive new containers.
+These pass through from `.env.local` without a rebuild: `TZ`, `LANG`, `LC_ALL`, `XDEBUG_MODE`, `XDEBUG_CONFIG`,
+`PHP_IDE_CONFIG`, and `COMPOSER_AUTH`. The images carry only the `C.utf8` locale.

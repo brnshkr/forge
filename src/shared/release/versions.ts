@@ -1,4 +1,4 @@
-import { Glob } from 'bun';
+import { file, Glob } from 'bun';
 import path from 'node:path';
 
 import {
@@ -320,5 +320,9 @@ export const readFragmentFiles = async (directory: string): Promise<string[]> =>
     'compose',
   ].map(async (fragmentDirectory) => Array.fromAsync(new Glob(`${fragmentDirectory}/*.yaml`).scan(directory))));
 
-  return fragmentFiles.flat();
+  const runnableFiles = await Promise.all(fragmentFiles.flat().map(async (fragmentFile) => (
+    /^ {4}image: /mv.test(await file(path.join(directory, fragmentFile)).text()) ? [fragmentFile] : []
+  )));
+
+  return runnableFiles.flat();
 };

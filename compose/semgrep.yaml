@@ -1,21 +1,18 @@
 services:
   semgrep:
-    image: ${SEMGREP_IMAGE:-${SEMGREP_REPOSITORY:-semgrep/semgrep}:${SEMGREP_TAG:?Set `SEMGREP_TAG` and `SEMGREP_IMAGE_DIGEST`, or `SEMGREP_IMAGE`.}@${SEMGREP_IMAGE_DIGEST:?Set `SEMGREP_TAG` and `SEMGREP_IMAGE_DIGEST`, or `SEMGREP_IMAGE`.}}
+    extends:
+      file: ./base.yaml
+      service: base
+    image: "${SEMGREP_IMAGE:-\
+      ${SEMGREP_REPOSITORY:-semgrep/semgrep}\
+      :${SEMGREP_TAG:?Set `SEMGREP_TAG` and `SEMGREP_IMAGE_DIGEST`, or `SEMGREP_IMAGE`.}\
+      @${SEMGREP_IMAGE_DIGEST:?Set `SEMGREP_TAG` and `SEMGREP_IMAGE_DIGEST`, or `SEMGREP_IMAGE`.}}"
     profiles:
       - semgrep
     working_dir: /app
     user: ${HOST_UID:-1000}:${HOST_GID:-1000}
-    restart: unless-stopped
-    logging:
-      driver: local
-    init: true
-    read_only: true
     mem_limit: ${SEMGREP_CONTAINER_MEMORY_LIMIT:-1g}
     pids_limit: ${SEMGREP_CONTAINER_PIDS_LIMIT:-256}
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
     environment:
       HOME: /tmp
       SEMGREP_SRC_DIRECTORY: /app

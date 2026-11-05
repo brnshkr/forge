@@ -1,30 +1,33 @@
 # 🚚 Deploying [🔍](../../.github/workflows/deploy.yaml 'Go to source')
 
-Every stage file that sets `DEPLOY_HOSTS` deploys from CI ([Stages](../deploy/stages.md)):
-a push to `dev/*` deploys `testing` as `dev-<short sha>`, and a release deploys `staging` and every other stage
-before it publishes anything, then `production` once approved.
+`deploy.yaml` deploys every stage file that sets `DEPLOY_HOSTS`, in the GitHub environment named like it.
 
 ## Usage
 
-Each target is a GitHub environment of the same name (_Settings → Environments_):
+A push to `dev/*` deploys `testing`. A release deploys `staging` and every other target before it publishes anything,
+then `production` once approved. See the [stages](../deploy/stages.md).
+
+Create an environment per target under _Settings → Environments_:
 
 | Name | Kind | Holds |
 | --- | --- | --- |
 | `DEPLOY_SSH_KEY` | secret | the private key the deploy logs in with |
-| `DEPLOY_KNOWN_HOSTS` | variable | the hosts' keys, the output of `ssh-keyscan` |
-| `DEPLOY_DOTENV` | secret | the server's `shared/.env.deploy.local`, written on every deploy, its values winning over your stage files' |
-| `DEPLOY_DOTENV_MERCURE`, `DEPLOY_DOTENV_MAILPIT` | secret | the server's `.env.mercure.local` and `.env.mailpit.local`, which only those services read |
-| `DEPLOY_HOSTS`, `DEPLOY_PATH` | secret | the hosts and path, used instead of the stage file's |
+| `DEPLOY_KNOWN_HOSTS` | variable | the servers' host keys, the output of `ssh-keyscan` |
+| `DEPLOY_DOTENV` | secret | the server's `shared/.env.deploy.local`, see [secrets](../deploy/secrets.md) |
+| `DEPLOY_DOTENV_MERCURE` | secret | the server's `shared/.env.mercure.local` |
+| `DEPLOY_DOTENV_MAILPIT` | secret | the server's `shared/.env.mailpit.local` |
+| `DEPLOY_HOSTS`, `DEPLOY_PATH` | secret | the hosts and path, instead of the stage file's |
 
-The logs mask every host and path, and a secret is never printed; hosts in a committed stage file stay public with it.
-Give `production` required reviewers, so a release waits for one of them.
+Give `production` required reviewers. A release then waits for one of them.
+The logs mask every host and path. Hosts in a committed stage file stay public.
 
-## Customizing
+## Choosing targets
 
-CI deploys every stage whose file sets `DEPLOY_HOSTS`. A stage that keeps its hosts only in the environment's
-`DEPLOY_HOSTS` secret has none in its file, so list the stages to deploy yourself:
+A target that keeps its hosts only in its environment has none in its stage file. List the targets yourself:
 
 ```yaml
+# ./.github/workflows/ci.yaml
+
 jobs:
   ci:
     uses: brnshkr/forge/.github/workflows/ci.yaml@<commit> # <tag>
@@ -32,10 +35,14 @@ jobs:
       deploy-targets: '["staging", "production"]'
 ```
 
-A workflow of your own redeploys, rolls back, or unlocks by hand:
+## Deploying by hand
+
+A workflow of your own redeploys, rolls back, or unlocks:
 
 ```yaml
 # ./.github/workflows/deploy.yaml
+
+name: Deploy
 
 on:
   workflow_dispatch:
@@ -60,6 +67,9 @@ on:
       version:
         type: string
 
+permissions:
+  contents: read
+
 jobs:
   deploy:
     permissions:
@@ -71,3 +81,5 @@ jobs:
       action: ${{ inputs.action }}
       version: ${{ inputs.version }}
 ```
+
+Take a look at the [deploy docs](../deploy/index.md) for what each action does.

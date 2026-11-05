@@ -1,0 +1,43 @@
+services:
+  cli:
+    extends:
+      file: ./base.yaml
+      service: base
+    image: "${FORGE_CLI_CHROMIUM_IMAGE:-\
+      ${FORGE_IMAGE_NAMESPACE:-\
+      ${FORGE_NAMESPACE:?Set it to the namespace of Forge's images and fragments, e.g. `docker.io/brnshkr`.}}\
+      /${FORGE_CLI_CHROMIUM_IMAGE_NAME:-${FORGE_IMAGE_NAME:-forge}}\
+      :${FORGE_TAG:?Set `FORGE_TAG` and `FORGE_CLI_CHROMIUM_IMAGE_DIGEST`, or `FORGE_CLI_CHROMIUM_IMAGE`.}-cli-chromium\
+      @${FORGE_CLI_CHROMIUM_IMAGE_DIGEST:?Set `FORGE_TAG` and `FORGE_CLI_CHROMIUM_IMAGE_DIGEST`, or `FORGE_CLI_CHROMIUM_IMAGE`.}}"
+    command: >-
+      ${CLI_COMMAND:-sleep infinity}
+    working_dir: /app
+    user: ${HOST_UID:-1000}:${HOST_GID:-1000}
+    mem_limit: ${CLI_CONTAINER_MEMORY_LIMIT:-2g}
+    pids_limit: ${CLI_CONTAINER_PIDS_LIMIT:-512}
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    environment:
+      BUN_INSTALL_CACHE_DIR: /app/.cache/bun.cache
+      COMPOSER_AUTH: ~
+      COMPOSER_CACHE_DIR: /app/.cache/composer.cache
+      LANG: ~
+      LC_ALL: ~
+      PHP_IDE_CONFIG: ~
+      TZ: ~
+      XDEBUG_CONFIG: ~
+      XDEBUG_MODE: ~
+      XDG_CACHE_HOME: /app/.cache/xdg.cache
+      XDG_CONFIG_HOME: /app/.cache/xdg.cache
+      XDG_DATA_HOME: /app/.cache/xdg.cache
+    healthcheck:
+      disable: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=512m
+      - /run:rw,nosuid,nodev,size=32m
+    volumes:
+      - ${HOST_APP_DIR:-${PWD}}:/app:rw
+      - forge-home:/home/forge
+
+volumes:
+  forge-home: ~

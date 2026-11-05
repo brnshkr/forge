@@ -740,11 +740,11 @@ resolve_image() {
       fail "\`$DOTENV_BASE.${image_stage:-$target}\` sets no \`IMAGE_NAME\`, so it builds no image to deploy."
     fi
 
-    runtime_image=$(get_value "$image_values_file" FORGE_RUNTIME_IMAGE)
+    runtime_image=$(get_value "$image_values_file" FORGE_APP_IMAGE)
 
     case ${runtime_image%%@*} in
-      *-dev)
-        fail "\`FORGE_RUNTIME_IMAGE\` is a \`-dev\` image, which ships development tools; use the matching production runtime image instead."
+      *-app-dev)
+        fail "\`FORGE_APP_IMAGE\` is an \`-app-dev\` image, which ships development tools; use the matching \`-app\` image instead."
       ;;
     esac
 
@@ -893,7 +893,7 @@ check_development() {
   fi
 
   if [ -n "$application_mount" ]; then
-    fail "\`${application_mount%% *}\` mounts \`${application_mount#* }\` over \`/app\`, which only development does; include \`web\` and \`messenger\` instead."
+    fail "\`${application_mount%% *}\` mounts \`${application_mount#* }\` over \`/app\`, which only development does; include the fragments without \`-dev\` instead."
   fi
 
   return 0
@@ -939,13 +939,11 @@ read_services() {
 
   APPLICATION_SERVICE=''
 
-  if is_listed app "$IMAGE_SERVICES"; then
-    APPLICATION_SERVICE=app
-  else
-    for service in $IMAGE_SERVICES; do
-      APPLICATION_SERVICE=${APPLICATION_SERVICE:-$service}
-    done
-  fi
+  for service in php-app bun-app $IMAGE_SERVICES; do
+    if [ -z "$APPLICATION_SERVICE" ] && is_listed "$service" "$IMAGE_SERVICES"; then
+      APPLICATION_SERVICE=$service
+    fi
+  done
 
   return 0
 }
@@ -2509,7 +2507,17 @@ load_release() {
     HAS_PROXY=1
   fi
 
-  read_services "$loaded_file" "$(get_service_image "$loaded_file" app)"
+  application_image=''
+
+  for service in php-app bun-app; do
+    application_image=${application_image:-$(get_service_image "$loaded_file" "$service")}
+  done
+
+  if [ -z "$application_image" ]; then
+    fail "\`$release_name\` runs neither \`php-app\` nor \`bun-app\`, so \`$host_entry\` cannot tell its application."
+  fi
+
+  read_services "$loaded_file" "$application_image"
 
   return 0
 }

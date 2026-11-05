@@ -1,7 +1,6 @@
 # 🔀 Zero downtime [🔍](../../compose/proxy.yaml 'Go to source')
 
-Include `forge/compose/proxy` and every deploy switches without dropping a request.
-Without it, `web` keeps its own ports and certificates and is down for the seconds it takes to restart.
+Include the `proxy` fragment and every deploy switches without dropping a request.
 
 ## Usage
 
@@ -9,29 +8,39 @@ Without it, `web` keeps its own ports and certificates and is down for the secon
 # ./conf/compose.prod.yaml
 
 include:
-  - path: oci://${FORGE_REPOSITORY}/compose/web:${WEB_FRAGMENT_TAG:-${FORGE_TAG:?}}@${WEB_FRAGMENT_DIGEST:?}
-  - path: oci://${FORGE_REPOSITORY}/compose/proxy:${PROXY_FRAGMENT_TAG:-${FORGE_TAG:?}}@${PROXY_FRAGMENT_DIGEST:?}
+  - path: oci://${FORGE_FRAGMENT_NAMESPACE:-${FORGE_NAMESPACE:?}}/forge-compose-php-app:${FORGE_TAG:?}@${FORGE_PHP_APP_FRAGMENT_DIGEST:?}
+  - path: oci://${FORGE_FRAGMENT_NAMESPACE:-${FORGE_NAMESPACE:?}}/forge-compose-proxy:${FORGE_TAG:?}@${FORGE_PROXY_FRAGMENT_DIGEST:?}
 ```
 
-The proxy owns ports 80 and 443 and the certificates of every project on the server, in `forge-shared`
-([Shared services](./shared.md)). It passes your application's own headers through and only drops `Server`.
-Your application then publishes no port and serves plain HTTP: a deploy starts the new release beside the old one,
-moves traffic over once it is healthy, and only then stops the old one.
+```ini
+# ./.env.production
 
-The first deploy that turns to the proxy stops the previous release's application, which holds the ports,
-so that one deploy takes seconds of downtime. If it fails, the proxy stops again and the old application comes back.
+PROXY_TAG=<tag>
+PROXY_IMAGE_DIGEST=sha256:<digest> # <version>
+FORGE_PROXY_FRAGMENT_DIGEST=sha256:<digest> # <version>
+```
+
+The proxy owns ports 80 and 443 and every project's certificates on the server, in the shared project `forge-shared`.
+It routes `SERVER_NAME` to your application at `<COMPOSE_PROJECT_NAME>-app` and passes its headers through.
+It drops only `Server`.
+
+Your application then publishes no port and serves plain HTTP.
+A deploy starts the new release beside the old one, moves traffic once the new one is healthy, then stops the old one.
+
+Without the proxy, `php-app` or `bun-app` keeps its own ports and certificates.
+It is down for the seconds a restart takes.
+The first deploy with the proxy stops the old application to free its ports. That one deploy takes seconds of downtime.
 
 ## Your application
 
-The proxy forwards the client's address and protocol, which Symfony trusts through `SYMFONY_TRUSTED_PROXIES`,
-set to `REMOTE_ADDR` since only the proxy reaches your application. Follow three rules:
+Symfony trusts the proxy's client address and protocol through `SYMFONY_TRUSTED_PROXIES=REMOTE_ADDR`.
+The deploy sets it. During a switch, two releases run at once, so follow three rules:
 
-- a migration keeps the previous release working: add a column first, remove the old one a release later
-- a Messenger message stays readable by the previous release
-- sessions and locks live in Valkey, Postgres, or `flock:///app/var/lock`, never in the per-container `/tmp`
-  Symfony's `flock` uses
+- A migration keeps the previous release working. Add a column first and remove the old one a release later.
+- A Messenger message stays readable by the previous release.
+- Sessions and locks live in Valkey, Postgres, or `flock:///app/var/lock`, never in a container's own `/tmp`.
 
-Give each release its own cache namespace, so the two releases never read each other's cache during the switch:
+Give each release its own cache namespace:
 
 ```yaml
 # ./config/packages/cache.yaml
@@ -41,17 +50,30 @@ framework:
     prefix_seed: '%env(FORGE_RELEASE)%'
 ```
 
-Each new container warms its cache before it counts as started, through the [`symfony` recipe](./hooks.md).
+The [`symfony` recipe](./hooks.md) warms each new container's cache before it serves.
 A container Docker restarts by itself starts cold.
 
 ## Customizing
 
-A name under `.internal`, e.g. for a staging only your network reaches, gets a certificate from the proxy's own
-certificate authority. Each device trusts its root once:
+| Variable | Changes |
+| --- | --- |
+| `PROXY_HTTP_PORT` | which port on the host serves HTTP |
+| `PROXY_HTTPS_PORT` | which port on the host serves HTTPS, for TCP and UDP |
+| `PROXY_HOST_IP` | where the ports listen |
+| `FORGE_PROXY_SITES_DIR` | where each project's site lives on the host |
+| `PROXY_CONTAINER_MEMORY_LIMIT` | how much memory the service may use |
+| `PROXY_CONTAINER_PIDS_LIMIT` | how many processes the service may start |
+
+The defaults are in [`proxy.yaml`](../../compose/proxy.yaml).
+
+## Internal names
+
+A name under `.internal`, e.g. for a staging server only your network reaches,
+gets its certificate from the proxy's own authority. Each device trusts its root once:
 
 ```sh
 ssh deploy@203.0.113.20 'docker cp forge-shared-proxy:/data/caddy/pki/authorities/local/root.crt -' \
   | tar -xO >./forge-shared-root.crt
 ```
 
-A server only your network reaches is deployed from a machine inside it, since GitHub's runners cannot reach it.
+GitHub's runners cannot reach such a server. Deploy it from a machine inside your network.

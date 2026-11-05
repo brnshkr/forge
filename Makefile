@@ -2,7 +2,7 @@
 
 #!! This project's targets
 
-DOTENV_DEFAULT_ENV := forge
+DOTENV_DEFAULT_ENV := forge-cli
 APP_SERVICE        := cli
 JS_SERVICE         := $(APP_SERVICE)
 APP_SERVICE_MODE    = run
@@ -38,9 +38,40 @@ BUN_AUDIT_FLAGS += --ignore GHSA-g3hv-75wg-m249
 
 #--- docker
 
+#**
+#* A string from `package.json`, read at the top level or inside the object its parent key names.
+#*
+#* parameters:
+#*   key: string
+#*   parent: string
+#*
+#* returns: string
+#*
+define _read_package_value
+$(shell $(AWK) -F '"' -v key='$1' -v parent='$2' '$$3 ~ /^: *[{]/ { object = $$2 } $$2 == key && object == parent { print $$4; exit } /^ *[}]/ { object = "" }' '$(CURDIR)/package.json')
+endef
+
+IMAGE_VENDOR    = $(patsubst @%,%,$(VENDOR))
+IMAGE_VERSION   = $(VERSION)
+IMAGE_AUTHORS  := $(call _read_package_value,author)
+IMAGE_LICENSES := $(call _read_package_value,license)
+IMAGE_URL      := $(call _read_package_value,homepage)
+IMAGE_SOURCE   := $(patsubst git+%,%,$(patsubst %.git,%,$(call _read_package_value,url,repository)))
+IMAGE_REVISION := $(shell $(GIT) rev-parse HEAD)
+IMAGE_CREATED  := $(shell $(GIT) log -1 --format=%cI)
+
+export IMAGE_VENDOR
+export IMAGE_VERSION
+export IMAGE_AUTHORS
+export IMAGE_LICENSES
+export IMAGE_URL
+export IMAGE_SOURCE
+export IMAGE_REVISION
+export IMAGE_CREATED
+
 _IMAGE_KEYS := IMAGE_NAME \
-	IMAGE_TARGET \
-	IMAGE_SUFFIX
+	IMAGE_DOCKERFILE \
+	IMAGE_TARGET
 
 _STAGE_IMAGE = $(shell $(AWK) -F= -v _KEYS='$(_IMAGE_KEYS)' \
 	'{ value_by_key[$$1] = substr($$0, length($$1) + 2) } END { count = split(_KEYS, keys, " "); for (i = 1; i <= count; i += 1) print keys[i] "=" value_by_key[keys[i]] }' \

@@ -3,14 +3,7 @@ import path from 'node:path';
 
 import { createReferenceMove } from '#src/shared/bump/bump-references';
 import { getImageSelection } from '#src/shared/bump/release-age';
-
-import {
-  FORGE_DIRECTORY,
-  readAssignments,
-  readMakeAssignments,
-  requireMakeVariable,
-} from '#src/shared/make';
-
+import { FORGE_DIRECTORY, readAssignments, readMakeAssignments } from '#src/shared/make';
 import { readDigest } from '#src/shared/pins/digests';
 import { readPlainAssignments } from '#src/shared/pins/dotenv';
 import { readDotenvText } from '#src/shared/pins/files';
@@ -19,12 +12,12 @@ import { parseImageReference } from '#src/shared/pins/references';
 import {
   createSplitReference,
   findSplitPins,
-  getForgeRepositoryOwner,
+  readForgeFragmentNamespace,
+  readForgeImageNamespace,
   readRepositoryDefaults,
+  readTagSuffixes,
   replaceAssignment,
 } from '#src/shared/pins/split-pins';
-
-import { readOwnValue } from '#src/shared/utils/object';
 
 import type { BumpContext, BumpResult } from '#src/shared/bump/bump-references';
 import type { Sightings } from '#src/shared/bump/release-age';
@@ -72,20 +65,19 @@ const readSplitDefaults = async (directory: string): Promise<SplitDefaults> => {
   const [fragmentTexts, assignments] = await Promise.all([
     Promise.all(fragmentFiles.map(async (fragmentFile) => file(fragmentFile).text())),
     readMakeAssignments(directory, [
-      'FORGE_REPOSITORY',
-      'FORGE_REPOSITORY_OWNER',
+      'FORGE_NAMESPACE',
+      'FORGE_IMAGE_NAMESPACE',
+      'FORGE_FRAGMENT_NAMESPACE',
     ]),
   ]);
 
-  const forgeRepository = requireMakeVariable(assignments, 'FORGE_REPOSITORY');
-
-  const forgeRepositoryOwner = readOwnValue(assignments, 'FORGE_REPOSITORY_OWNER')
-    ?? getForgeRepositoryOwner(forgeRepository);
+  const forgeImageNamespace = readForgeImageNamespace(assignments);
 
   return {
-    forgeRepository,
-    forgeRepositoryOwner,
-    repositories: readRepositoryDefaults(fragmentTexts, forgeRepositoryOwner),
+    forgeFragmentNamespace: readForgeFragmentNamespace(assignments),
+    forgeImageNamespace,
+    repositories: readRepositoryDefaults(fragmentTexts, forgeImageNamespace),
+    tagSuffixes: readTagSuffixes(fragmentTexts),
   };
 };
 

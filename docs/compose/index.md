@@ -1,101 +1,127 @@
 # 🐳 Compose [🔍](../../compose/ 'Go to source')
 
-Every service comes as a Compose fragment of its own, so your project includes only the ones it runs:
-
-| Fragment | Service | Image prefix | Required | Docs |
-| --- | --- | --- | --- | --- |
-| [`forge/compose/cli`](../../compose/cli.yaml) | `cli` | `FORGE_CLI` | — | [CLI](./cli.md) |
-| [`forge/compose/web-dev`](../../compose/web-dev.yaml) | `app` | `FORGE_APP` | `SERVER_NAME`, `APP_HTTP_PORT`, `APP_HTTPS_PORT` | [Development](./development.md) |
-| [`forge/compose/web`](../../compose/web.yaml) | `app` | `FORGE_APP` | `SERVER_NAME`, `APP_HTTP_PORT`, `APP_HTTPS_PORT` | [Production](./production.md) |
-| [`forge/compose/web-bun-dev`](../../compose/web-bun-dev.yaml) | `app` | `FORGE_APP` | `APP_HTTP_PORT` | [Bun app](./bun-app.md#development) |
-| [`forge/compose/web-bun`](../../compose/web-bun.yaml) | `app` | `FORGE_APP` | `APP_HTTP_PORT` | [Bun app](./bun-app.md#production) |
-| [`forge/compose/messenger-dev`](../../compose/messenger-dev.yaml) | `messenger` | `FORGE_APP` | `MESSENGER_TRANSPORTS` | [Messenger](./messenger.md) |
-| [`forge/compose/messenger`](../../compose/messenger.yaml) | `messenger` | `FORGE_APP` | `MESSENGER_TRANSPORTS` | [Messenger](./messenger.md) |
-| [`forge/compose/mercure`](../../compose/mercure.yaml) | `mercure` | `MERCURE` | `MERCURE_PUBLISHER_JWT_KEY`, `MERCURE_TRUSTED_ISSUERS` | [Mercure](./mercure.md) |
-| [`forge/compose/proxy`](../../compose/proxy.yaml) | `proxy` | `PROXY` | — | [Zero downtime](../deploy/zero-downtime.md) |
-| [`forge/compose/postgres`](../../compose/postgres.yaml) | `postgres` | `POSTGRES` | `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_USER` | [Postgres](./postgres.md) |
-| [`forge/compose/valkey`](../../compose/valkey.yaml) | `valkey` | `VALKEY` | — | [Valkey](./valkey.md) |
-| [`forge/compose/mailpit`](../../compose/mailpit.yaml) | `mailpit` | `MAILPIT` | `MAILPIT_MAX_MESSAGES`, `MAILPIT_SMTP_PORT`, `MAILPIT_WEB_PORT` | [Mailpit](./mailpit.md) |
-| [`forge/compose/node`](../../compose/node.yaml) | `node` | `NODE` | — | [Tools](./tools.md) |
-| [`forge/compose/semgrep`](../../compose/semgrep.yaml) | `semgrep` | `SEMGREP` | — | [Tools](./tools.md) |
-| [`forge/compose/hadolint`](../../compose/hadolint.yaml) | `hadolint` | `HADOLINT` | — | [Tools](./tools.md) |
-| [`forge/compose/actionlint`](../../compose/actionlint.yaml) | `actionlint` | `ACTIONLINT` | — | [Tools](./tools.md) |
-
-A library includes `cli`; web projects use `web-dev` while developing and `web` in production. Bun projects use
-`web-bun-dev` and `web-bun`.
+Compose fragments for your app, its workers, its services, and its tools, pinned by every Forge release.
 
 ## Usage
 
-Include each fragment from a Forge release, pinned by its digest:
+Include each fragment from the registry and pin it by digest:
 
 ```yaml
 # ./conf/compose.yaml
 
 include:
-  - path: oci://${FORGE_REPOSITORY}/compose/web-dev:${WEB_DEV_FRAGMENT_TAG:-${FORGE_TAG:?}}@${WEB_DEV_FRAGMENT_DIGEST:?}
-  - path: oci://${FORGE_REPOSITORY}/compose/postgres:${POSTGRES_FRAGMENT_TAG:-${FORGE_TAG:?}}@${POSTGRES_FRAGMENT_DIGEST:?}
+  - path: oci://${FORGE_FRAGMENT_NAMESPACE:-${FORGE_NAMESPACE:?}}/forge-compose-php-app-dev:${FORGE_TAG:?}@${FORGE_PHP_APP_DEV_FRAGMENT_DIGEST:?}
 ```
 
-Then pin the release, one digest per fragment, and one per image the fragments run:
-
-```dotenv
+```ini
 # ./.env
 
 FORGE_TAG=<tag>
-FORGE_APP_IMAGE_SUFFIX=-dev
-FORGE_APP_IMAGE_DIGEST=sha256:<digest> # <version>
+FORGE_PHP_APP_DEV_FRAGMENT_DIGEST=sha256:<digest> # <version>
+```
 
-WEB_DEV_FRAGMENT_DIGEST=sha256:<digest> # <version>
-POSTGRES_FRAGMENT_DIGEST=sha256:<digest> # <version>
+A fragment's pin is named after it, in capitals with `_`, e.g. `FORGE_PHP_APP_DEV_FRAGMENT_DIGEST`.
+Every fragment comes from the release in `FORGE_TAG`.
+Read a digest once with `docker buildx imagetools inspect docker.io/brnshkr/forge-compose-php-app-dev:<tag>`.
+
+[🛠️ `make`](https://github.com/brnshkr/config/blob/master/docs/Makefile.md) sets
+`FORGE_NAMESPACE=docker.io/brnshkr` for the images and the fragments.
+`FORGE_IMAGE_NAMESPACE` or `FORGE_FRAGMENT_NAMESPACE` moves only one of them, e.g. to `ghcr.io/brnshkr`.
+
+### Without the shared Makefile
+
+Put it in `.env` and pass your user to Compose:
+
+```ini
+# ./.env
+
+FORGE_NAMESPACE=docker.io/brnshkr
+```
+
+```sh
+HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose --env-file ./.env --file ./conf/compose.yaml up --wait
+```
+
+### Full references
+
+Write each reference out instead of building it from variables:
+
+```yaml
+# ./conf/compose.yaml
+
+include:
+  - path: oci://docker.io/brnshkr/forge-compose-php-app-dev:<tag>@sha256:<digest> # <version>
+```
+
+```ini
+# ./.env
+
+FORGE_APP_DEV_IMAGE=docker.io/brnshkr/forge:<tag>-app-dev@sha256:<digest> # <version>
+```
+
+The bump keeps both current. Switching registries then means editing every reference,
+and nothing ties the fragment to its image's release the way `FORGE_TAG` does.
+
+## Fragments
+
+| Fragment | Service | Image | Required |
+| --- | --- | --- | --- |
+| [`cli`](./cli.md) | `cli` | `FORGE_CLI` | — |
+| [`cli-chromium`](./cli.md) | `cli` | `FORGE_CLI_CHROMIUM` | — |
+| [`php-app-dev`, `php-app`](./php-app.md) | `php-app` | `FORGE_APP_DEV`, `FORGE_APP` | `SERVER_NAME`, `APP_HTTP_PORT`, `APP_HTTPS_PORT` |
+| [`php-worker-dev`, `php-worker`](./php-worker.md) | `php-worker` | `FORGE_APP_DEV`, `FORGE_APP` | `MESSENGER_TRANSPORTS` |
+| [`bun-app-dev`, `bun-app`](./bun-app.md) | `bun-app` | `FORGE_APP_DEV`, `FORGE_APP` | `APP_HTTP_PORT` |
+| [`bun-worker-dev`, `bun-worker`](./bun-worker.md) | `bun-worker` | `FORGE_APP_DEV`, `FORGE_APP` | — |
+| [`mercure`](./mercure.md) | `mercure` | `MERCURE` | — |
+| [`postgres`](./postgres.md) | `postgres` | `POSTGRES` | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` |
+| [`valkey`](./valkey.md) | `valkey` | `VALKEY` | — |
+| [`mailpit`](./mailpit.md) | `mailpit` | `MAILPIT` | `MAILPIT_MAX_MESSAGES`, `MAILPIT_SMTP_PORT`, `MAILPIT_WEB_PORT` |
+| [`proxy`](../deploy/zero-downtime.md) | `proxy` | `PROXY` | — |
+| [`node`, `semgrep`, `hadolint`, `actionlint`](./tools.md) | the same name | the same name in capitals | — |
+
+The prefix names what runs. `php-` runs FrankenPHP, `bun-` runs Bun, and `cli` runs only the tools.
+A `-dev` fragment runs your working copy on the `-app-dev` image.
+Without `-dev`, it runs your own image on `-app`. A project may run both servers.
+
+## Images
+
+A Forge image resolves from its role's variables:
+
+1. `FORGE_<ROLE>_IMAGE`, a full reference. A deploy sets `FORGE_APP_IMAGE`.
+2. Else `<namespace>/<name>:<FORGE_TAG>-<role>@<FORGE_<ROLE>_IMAGE_DIGEST>`.
+
+The namespace is `FORGE_IMAGE_NAMESPACE`, else `FORGE_NAMESPACE`.
+The name is `FORGE_<ROLE>_IMAGE_NAME`, else `FORGE_IMAGE_NAME`, else `forge`.
+The roles are `CLI` (`-cli`), `CLI_CHROMIUM` (`-cli-chromium`), `APP_DEV` (`-app-dev`), and `APP` (`-app`).
+Take a look at the [images](../images/index.md) for what each one holds.
+
+Any other image resolves from `<NAME>_IMAGE`, a full reference.
+Without it, the image is `<NAME>_REPOSITORY`, the upstream image by default, with `<NAME>_TAG` and `<NAME>_IMAGE_DIGEST`:
+
+```ini
+# ./.env
 
 POSTGRES_TAG=<tag>
 POSTGRES_IMAGE_DIGEST=sha256:<digest> # <version>
 ```
 
-You write these once; the bump keeps them current ([Pins docs](../pins.md#your-projects-pins)).
-[`@brnshkr/config`](https://github.com/brnshkr/config)'s Makefile also sets `FORGE_REPOSITORY`, your user,
-and your project's directory for Compose, and Compose names every variable that is still missing.
-
-## Customizing
-
-Each fragment takes the first image reference it can build, from the variables named after its prefix:
-
-| Set | Runs |
-| --- | --- |
-| `FORGE_APP_IMAGE` | exactly that reference |
-| `FORGE_APP_IMAGE_DIGEST` | `<FORGE_REPOSITORY_OWNER>/<FORGE_APP_IMAGE_NAME>:<FORGE_TAG><FORGE_APP_IMAGE_SUFFIX>@<digest>` |
-| `POSTGRES_IMAGE` | exactly that reference |
-| `POSTGRES_IMAGE_DIGEST` | `<POSTGRES_REPOSITORY>:<POSTGRES_TAG>@<digest>` |
-
-Forge's own images share `FORGE_TAG` and come from `FORGE_REPOSITORY_OWNER`, e.g. `ghcr.io/brnshkr`,
-the namespace above `FORGE_REPOSITORY`. `FORGE_CLI_IMAGE_NAME` and `FORGE_APP_IMAGE_NAME` pick the image,
-`forge` and `forge-app` by default. Choose `forge-php-app` for a PHP-only app or `forge-bun-app` with the Bun fragments.
-`FORGE_CLI_IMAGE_SUFFIX` and `FORGE_APP_IMAGE_SUFFIX` pick a tag suffix, e.g. `-dev`.
-Every other image keeps its upstream repository unless you set one:
-
-```dotenv
-# ./.env
-
-POSTGRES_REPOSITORY=ghcr.io/acme/postgres
-VALKEY_IMAGE=valkey/valkey:<tag>@sha256:<digest>
-```
-
-A fragment comes from the release in `FORGE_TAG` unless its own tag says otherwise:
-
-```dotenv
-# ./.env
-
-POSTGRES_FRAGMENT_TAG=<other-tag>
-POSTGRES_FRAGMENT_DIGEST=sha256:<digest>
-```
+`proxy` and `mercure` run `forge-php`'s `-app` image. `PROXY_TAG` and `MERCURE_TAG` hold a plain Forge version.
+The fragment appends `-app`.
+If a variable is missing, Compose names it. Where the name alone says too little, it adds a hint.
 
 ## Hardening
 
-Every fragment runs the same way:
+Every fragment extends the service `base` in [`./compose/base.yaml`](../../compose/base.yaml):
 
-- a read-only root filesystem with a tmpfs on `/tmp`
-- `cap_drop: ALL` and `no-new-privileges`
-- `init`, `restart: unless-stopped`, and Docker's rotating `local` log driver
-- a memory and a process limit, `<SERVICE>_CONTAINER_MEMORY_LIMIT` and `<SERVICE>_CONTAINER_PIDS_LIMIT`,
-  e.g. `APP_CONTAINER_MEMORY_LIMIT`; `web-dev` and `messenger-dev` read `APP_DEV_CONTAINER_MEMORY_LIMIT` and
-  `MESSENGER_DEV_CONTAINER_MEMORY_LIMIT` first, so your machine meets the limits a server sets
+| Setting | Value |
+| --- | --- |
+| `restart` | `unless-stopped` |
+| `logging.driver` | `local` |
+| `init` | `true` |
+| `read_only` | `true` |
+| `cap_drop` | `ALL` |
+| `security_opt` | `no-new-privileges:true` |
+
+A container writes only to its volumes, `/tmp`, and `/run`.
+Both live in memory, with a size cap set in each fragment file.
+Each container also has a memory limit and a process limit, listed on its page.

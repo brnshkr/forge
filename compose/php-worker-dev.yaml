@@ -1,0 +1,37 @@
+services:
+  php-worker:
+    extends:
+      file: ./base.yaml
+      service: base
+    image: "${FORGE_APP_DEV_IMAGE:-\
+      ${FORGE_IMAGE_NAMESPACE:-\
+      ${FORGE_NAMESPACE:?Set it to the namespace of Forge's images and fragments, e.g. `docker.io/brnshkr`.}}\
+      /${FORGE_APP_DEV_IMAGE_NAME:-${FORGE_IMAGE_NAME:-forge}}\
+      :${FORGE_TAG:?Set `FORGE_TAG` and `FORGE_APP_DEV_IMAGE_DIGEST`, or `FORGE_APP_DEV_IMAGE`.}-app-dev\
+      @${FORGE_APP_DEV_IMAGE_DIGEST:?Set `FORGE_TAG` and `FORGE_APP_DEV_IMAGE_DIGEST`, or `FORGE_APP_DEV_IMAGE`.}}"
+    command: >-
+      ${PHP_WORKER_COMMAND:-bin/console messenger:consume
+      ${MESSENGER_TRANSPORTS:?Set it to the transports to consume, e.g. `async scheduler_default`.}
+      --time-limit=${MESSENGER_TIME_LIMIT:-3600}
+      --memory-limit=${MESSENGER_MEMORY_LIMIT:-128M}}
+    working_dir: /app
+    user: ${HOST_UID:-1000}:${HOST_GID:-1000}
+    mem_limit: ${PHP_WORKER_DEV_CONTAINER_MEMORY_LIMIT:-${PHP_WORKER_CONTAINER_MEMORY_LIMIT:-512m}}
+    pids_limit: ${PHP_WORKER_DEV_CONTAINER_PIDS_LIMIT:-${PHP_WORKER_CONTAINER_PIDS_LIMIT:-512}}
+    environment:
+      LANG: ~
+      LC_ALL: ~
+      PHP_IDE_CONFIG: ~
+      TZ: ~
+      XDEBUG_CONFIG: ~
+      XDEBUG_MODE: ~
+      XDG_CACHE_HOME: /app/.cache/xdg.cache
+      XDG_CONFIG_HOME: /app/.cache/xdg.cache
+      XDG_DATA_HOME: /app/.cache/xdg.cache
+    healthcheck:
+      disable: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=512m
+      - /run:rw,nosuid,nodev,size=32m
+    volumes:
+      - ${HOST_APP_DIR:-${PWD}}:/app:rw

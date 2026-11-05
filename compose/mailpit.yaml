@@ -1,19 +1,16 @@
 services:
   mailpit:
-    image: ${MAILPIT_IMAGE:-${MAILPIT_REPOSITORY:-axllent/mailpit}:${MAILPIT_TAG:?Set `MAILPIT_TAG` and `MAILPIT_IMAGE_DIGEST`, or `MAILPIT_IMAGE`.}@${MAILPIT_IMAGE_DIGEST:?Set `MAILPIT_TAG` and `MAILPIT_IMAGE_DIGEST`, or `MAILPIT_IMAGE`.}}
+    extends:
+      file: ./base.yaml
+      service: base
+    image: "${MAILPIT_IMAGE:-\
+      ${MAILPIT_REPOSITORY:-axllent/mailpit}\
+      :${MAILPIT_TAG:?Set `MAILPIT_TAG` and `MAILPIT_IMAGE_DIGEST`, or `MAILPIT_IMAGE`.}\
+      @${MAILPIT_IMAGE_DIGEST:?Set `MAILPIT_TAG` and `MAILPIT_IMAGE_DIGEST`, or `MAILPIT_IMAGE`.}}"
     container_name: ${COMPOSE_PROJECT_NAME}-mailpit
     user: nobody
-    restart: unless-stopped
-    logging:
-      driver: local
-    init: true
-    read_only: true
     mem_limit: ${MAILPIT_CONTAINER_MEMORY_LIMIT:-256m}
     pids_limit: ${MAILPIT_CONTAINER_PIDS_LIMIT:-256}
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
     env_file:
       - path: ${FORGE_SHARED_DIR:-/app/var/shared}/.env.mailpit.local
         required: false

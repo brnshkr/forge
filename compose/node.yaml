@@ -1,21 +1,18 @@
 services:
   node:
-    image: ${NODE_IMAGE:-${NODE_REPOSITORY:-node}:${NODE_TAG:?Set `NODE_TAG` and `NODE_IMAGE_DIGEST`, or `NODE_IMAGE`.}@${NODE_IMAGE_DIGEST:?Set `NODE_TAG` and `NODE_IMAGE_DIGEST`, or `NODE_IMAGE`.}}
+    extends:
+      file: ./base.yaml
+      service: base
+    image: "${NODE_IMAGE:-\
+      ${NODE_REPOSITORY:-node}\
+      :${NODE_TAG:?Set `NODE_TAG` and `NODE_IMAGE_DIGEST`, or `NODE_IMAGE`.}\
+      @${NODE_IMAGE_DIGEST:?Set `NODE_TAG` and `NODE_IMAGE_DIGEST`, or `NODE_IMAGE`.}}"
     profiles:
       - node
     working_dir: /app
     user: ${HOST_UID:-1000}:${HOST_GID:-1000}
-    restart: unless-stopped
-    logging:
-      driver: local
-    init: true
-    read_only: true
     mem_limit: ${NODE_CONTAINER_MEMORY_LIMIT:-2g}
     pids_limit: ${NODE_CONTAINER_PIDS_LIMIT:-256}
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
     environment:
       HOME: /tmp
     tmpfs:

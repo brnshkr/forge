@@ -148,14 +148,14 @@ jobs:
           printf 'services: {}\n' >"$RUNNER_TEMP/empty.yaml"
 
           dotenv=1
-          make_forge_repository_owner=''
+          make_forge_image_namespace=''
 
           if [ -f Makefile ]; then
             dotenv=$(make -s --no-print-directory \
               --eval "dotenv: ; @echo \$(if \$(filter undefined,\$(origin DOTENV)),1,\$(DOTENV))" dotenv)
 
-            make_forge_repository_owner=$(make -s --no-print-directory \
-              --eval "owner: ; @echo \$(or \$(FORGE_REPOSITORY_OWNER),\$(patsubst %/,%,\$(dir \$(FORGE_REPOSITORY))))" owner)
+            make_forge_image_namespace=$(make -s --no-print-directory \
+              --eval "namespace: ; @echo \$(or \$(FORGE_IMAGE_NAMESPACE),\$(FORGE_NAMESPACE))" namespace)
           fi
 
           case $dotenv in
@@ -202,35 +202,28 @@ jobs:
             echo "::add-mask::$path"
           fi
 
-          forge_repository_owner=${make_forge_repository_owner:-$(read_value "$TARGET" FORGE_REPOSITORY_OWNER)}
+          forge_image_namespace=${make_forge_image_namespace:-$(read_value "$TARGET" FORGE_IMAGE_NAMESPACE)}
+          forge_image_namespace=${forge_image_namespace:-$(read_value "$TARGET" FORGE_NAMESPACE)}
 
-          if [ -z "$forge_repository_owner" ]; then
-            forge_repository=$(read_value "$TARGET" FORGE_REPOSITORY)
-            forge_repository_owner=${forge_repository%/*}
-          fi
-
-          forge_repository_owner=${forge_repository_owner:-ghcr.io/brnshkr}
+          forge_organization=$(jq -r '.name | ltrimstr("@") | split("/")[0]' ./.cache/forge.cache/package.json)
+          forge_package=$(jq -r '.name | split("/")[1]' ./.cache/forge.cache/package.json)
+          forge_image_namespace=${forge_image_namespace:-docker.io/$forge_organization}
           image_stage=$(read_value "$TARGET" DEPLOY_IMAGE)
           build_stage=${image_stage:-$TARGET}
-          build_image=$(read_value "$build_stage" FORGE_BUILD_IMAGE)
-          build_digest_key=FORGE_BUILD_IMAGE_DIGEST
-          build_digest=$(read_value "$build_stage" FORGE_BUILD_IMAGE_DIGEST)
-
-          if [ -z "$build_digest" ] && [ "$(read_value "$build_stage" FORGE_APP_IMAGE_SUFFIX)" = -dev ]; then
-            build_digest_key=FORGE_APP_IMAGE_DIGEST
-            build_digest=$(read_value "$build_stage" FORGE_APP_IMAGE_DIGEST)
-          fi
+          build_image=$(read_value "$build_stage" FORGE_APP_DEV_IMAGE)
+          build_digest=$(read_value "$build_stage" FORGE_APP_DEV_IMAGE_DIGEST)
 
           if [ -z "$build_image" ] && [ -n "$build_digest" ]; then
             forge_tag=$(read_value "$build_stage" FORGE_TAG)
-            app_image_name=$(read_value "$build_stage" FORGE_APP_IMAGE_NAME)
+            image_name=$(read_value "$build_stage" FORGE_APP_DEV_IMAGE_NAME)
+            image_name=${image_name:-$(read_value "$build_stage" FORGE_IMAGE_NAME)}
 
             if [ -z "$forge_tag" ]; then
-              echo "Variable \"FORGE_TAG\" not found, but \"$build_digest_key\" requires it." >&2
+              echo "Variable \"FORGE_TAG\" not found, but \"FORGE_APP_DEV_IMAGE_DIGEST\" requires it." >&2
               exit 1
             fi
 
-            build_image=$forge_repository_owner/${app_image_name:-forge-app}:$forge_tag-dev@$build_digest
+            build_image=$forge_image_namespace/${image_name:-$forge_package}:$forge_tag-app-dev@$build_digest
           fi
 
           if [ -n "$build_image" ]; then
@@ -241,7 +234,7 @@ jobs:
 
           {
             echo "dotenv-base=$dotenv_base"
-            echo "forge-repository-owner=$forge_repository_owner"
+            echo "forge-image-namespace=$forge_image_namespace"
             echo "path=$script"
           } >>"$GITHUB_OUTPUT"
 
@@ -256,7 +249,7 @@ jobs:
           DEPLOY_NAMESPACE: ${{ inputs.namespace || github.repository_owner }}
           DEPLOY_PATH_SECRET: ${{ secrets.DEPLOY_PATH }}
           DEPLOY_REGISTRY: ${{ inputs.registry }}
-          FORGE_REPOSITORY_OWNER: ${{ steps.script.outputs.forge-repository-owner }}
+          FORGE_IMAGE_NAMESPACE: ${{ steps.script.outputs.forge-image-namespace }}
           SCRIPT: ${{ steps.script.outputs.path }}
           TARGET: ${{ inputs.target }}
           VERSION: ${{ inputs.version }}

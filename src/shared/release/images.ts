@@ -11,10 +11,10 @@ import {
 } from '#src/shared/make';
 
 import {
+  FORGE_IMAGE_NAME_KEY,
   FORGE_IMAGE_ROLES,
   formatForgeImage,
-  getForgeRepositoryOwner,
-  readForgeImageSuffix,
+  readForgeImageNamespace,
 } from '#src/shared/pins/split-pins';
 
 import { objectFromEntries, readOwnValue } from '#src/shared/utils/object';
@@ -35,10 +35,17 @@ export interface ImageLocation {
 export interface ImageTarget {
   readonly aliases: readonly string[];
   readonly arguments: readonly string[];
+  readonly base: string;
   readonly dockerfile: string;
   readonly name: string;
   readonly suffix: string;
   readonly target: string;
+}
+
+interface ForgeImageArgument {
+  readonly name: string;
+  readonly prefix: string;
+  readonly role: ForgeImageRole;
 }
 
 const STAGE_VARIABLE_NAMES = <const>{
@@ -47,6 +54,7 @@ const STAGE_VARIABLE_NAMES = <const>{
   ],
   optional: [
     'IMAGE_ALIASES',
+    'IMAGE_DOCKERFILE',
     'IMAGE_NAME',
     'IMAGE_SUFFIX',
     'IMAGE_TARGET',
@@ -64,17 +72,45 @@ const AUTOMATIC_ARGUMENTS = new Set([
   'TARGETVARIANT',
 ]);
 
-const FORGE_IMAGE_ARGUMENTS: ReadonlyMap<string, readonly string[]> = new Map([
-  ['FORGE_BUILD_IMAGE', [
-    'FORGE_BUILD',
-    'FORGE_APP',
-  ]],
-  ['FORGE_RUNTIME_IMAGE', [
-    'FORGE_RUNTIME',
-  ]],
-]);
-
 const createArgumentPattern = (): RegExp => /^ARG[\t ]+(?<name>[A-Z_a-z]\w*)(?<assignment>=?)/gmv;
+const createStagePattern = (): RegExp => /^from[\t ]+(?:--\S+[\t ]+)*(?<reference>\S+)(?:[\t ]+as[\t ]+(?<name>\S+))?/gimv;
+
+const foldLines = (value: string): string => value
+  .split('\n')
+  .map((line) => line.trim())
+  .filter((line) => line !== '')
+  .join(' ');
+
+const resolveStageBase = (reference: string, parentByStage: ReadonlyMap<string, string>): string => {
+  const parent = parentByStage.get(reference);
+
+  return parent === undefined ? reference : resolveStageBase(parent, parentByStage);
+};
+
+/**
+ * @throws {Error}
+ */
+export const readTargetBase = (dockerfileText: string, target: string): string => {
+  const stages = dockerfileText
+    .matchAll(createStagePattern())
+    .map((match) => ({
+      name: match.groups?.['name'],
+      reference: readGroup(match.groups, 'reference'),
+    }))
+    .toArray();
+
+  const parentByStage = new Map(stages.flatMap((stage) => (stage.name === undefined
+    ? []
+    : [<const>[stage.name, stage.reference]])));
+
+  const reference = parentByStage.get(target) ?? stages.at(-1)?.reference;
+
+  if (reference === undefined) {
+    throw new Error(`Dockerfile has no "FROM" instruction, so target "${target}" has no base.`);
+  }
+
+  return resolveStageBase(reference, parentByStage);
+};
 
 export const getImageName = (location: ImageLocation, imageTarget: ImageTarget): string => [
   location.registry,
@@ -118,21 +154,23 @@ export const readBuildArguments = (
   return argumentNames.flatMap((name) => {
     const value = readOwnValue(argumentValues, name);
 
-    return value === undefined ? [] : [`${name}=${value}`];
+    return value === undefined ? [] : [`${name}=${foldLines(value)}`];
   });
 };
 
-/**
- * @throws {Error}
- */
-const requireForgeImageRole = (prefix: string): ForgeImageRole => {
+const readForgeImageArgument = (name: string): Maybe<ForgeImageArgument> => {
+  const prefix = name.replace(/_IMAGE$/v, '');
   const role = readOwnValue(FORGE_IMAGE_ROLES, prefix);
 
-  if (role === undefined) {
-    throw new Error(`Image role "${prefix}" not found.`);
+  if (prefix === name || role === undefined) {
+    return undefined;
   }
 
-  return role;
+  return {
+    name,
+    prefix,
+    role,
+  };
 };
 
 /**
@@ -140,31 +178,24 @@ const requireForgeImageRole = (prefix: string): ForgeImageRole => {
  */
 const resolveForgeImage = (
   assignments: Readonly<Record<string, string>>,
-  argumentName: string,
-  prefixes: readonly string[],
+  forgeImageArgument: ForgeImageArgument,
 ): Maybe<string> => {
-  const role = requireForgeImageRole(argumentName.replace(/_IMAGE$/v, ''));
+  const digestKey = `${forgeImageArgument.prefix}_IMAGE_DIGEST`;
 
-  const pinPrefix = prefixes.find((prefix) => readOwnValue(assignments, `${prefix}_IMAGE_DIGEST`) !== undefined
-    && readForgeImageSuffix(requireForgeImageRole(prefix), assignments) === role.suffix);
-
-  if (pinPrefix === undefined || readOwnValue(assignments, argumentName) !== undefined) {
+  if (readOwnValue(assignments, digestKey) === undefined
+    || readOwnValue(assignments, forgeImageArgument.name) !== undefined) {
     return undefined;
   }
 
-  const digestKey = `${pinPrefix}_IMAGE_DIGEST`;
   const tag = readOwnValue(assignments, 'FORGE_TAG');
 
   if (tag === undefined) {
     throw new Error(`Variable "FORGE_TAG" not found, but "${digestKey}" requires it.`);
   }
 
-  const forgeRepositoryOwner = readOwnValue(assignments, 'FORGE_REPOSITORY_OWNER')
-    ?? getForgeRepositoryOwner(requireMakeVariable(assignments, 'FORGE_REPOSITORY'));
+  const image = formatForgeImage(forgeImageArgument.role, assignments, readForgeImageNamespace(assignments));
 
-  return `${formatForgeImage(role, assignments, forgeRepositoryOwner)}:${tag}${role.suffix}@${
-    requireMakeVariable(assignments, digestKey)
-  }`;
+  return `${image}:${tag}${forgeImageArgument.role.suffix}@${requireMakeVariable(assignments, digestKey)}`;
 };
 
 /**
@@ -175,38 +206,69 @@ const readArgumentValues = async (
   argumentNames: readonly string[],
   stage: string,
 ): Promise<Record<string, string>> => {
-  const forgeImages = [...FORGE_IMAGE_ARGUMENTS].filter(([name]) => argumentNames.includes(name));
+  const forgeImageArguments = argumentNames.flatMap((name) => {
+    const forgeImageArgument = readForgeImageArgument(name);
 
-  if (forgeImages.length === 0) {
+    return forgeImageArgument === undefined ? [] : [forgeImageArgument];
+  });
+
+  if (forgeImageArguments.length === 0) {
     return readMakeAssignments(directory, argumentNames, stage);
   }
 
-  const roles = [...FORGE_IMAGE_ROLES].filter(
-    ([prefix]) => forgeImages.some(([, prefixes]) => prefixes.includes(prefix)),
-  );
-
   const assignments = await readMakeAssignments(directory, [
     ...argumentNames,
-    ...roles.flatMap(([prefix, role]) => [
-      `${prefix}_IMAGE_DIGEST`,
-      role.nameKey,
-      ...role.suffixKey === undefined ? [] : [role.suffixKey],
+    ...forgeImageArguments.flatMap((forgeImageArgument) => [
+      `${forgeImageArgument.prefix}_IMAGE_DIGEST`,
+      forgeImageArgument.role.nameKey,
     ]),
-    'FORGE_REPOSITORY',
-    'FORGE_REPOSITORY_OWNER',
+    FORGE_IMAGE_NAME_KEY,
+    'FORGE_NAMESPACE',
+    'FORGE_IMAGE_NAMESPACE',
     'FORGE_TAG',
   ], stage);
 
-  const resolvedImages = forgeImages.flatMap(([name, prefixes]) => {
-    const resolvedImage = resolveForgeImage(assignments, name, prefixes);
+  const resolvedImages = forgeImageArguments.flatMap((forgeImageArgument) => {
+    const resolvedImage = resolveForgeImage(assignments, forgeImageArgument);
 
-    return resolvedImage === undefined ? [] : [<const>[name, resolvedImage]];
+    return resolvedImage === undefined ? [] : [<const>[forgeImageArgument.name, resolvedImage]];
   });
 
   return {
     ...assignments,
     ...objectFromEntries(resolvedImages),
   };
+};
+
+/**
+ * @rejects {Error}
+ */
+const findDockerfile = async (
+  directory: string,
+  stageVariables: Readonly<Record<'CONFIG_DIR' | 'IMAGE_DOCKERFILE', string>>,
+  imageName: string,
+): Promise<string> => {
+  if (stageVariables.IMAGE_DOCKERFILE !== '') {
+    const namedDockerfilePath = path.normalize(stageVariables.IMAGE_DOCKERFILE);
+
+    if (!await file(path.join(directory, namedDockerfilePath)).exists()) {
+      throw new Error(`The file "${namedDockerfilePath}" does not exist.`);
+    }
+
+    return namedDockerfilePath;
+  }
+
+  const dockerfileCandidates = [
+    path.join(stageVariables.CONFIG_DIR, 'docker', `${imageName}.Dockerfile`),
+    path.join('docker', `${imageName}.Dockerfile`),
+  ];
+
+  const projectDockerfilePath = await findFirstPassing(
+    dockerfileCandidates,
+    async (candidate) => file(path.join(directory, candidate)).exists(),
+  );
+
+  return projectDockerfilePath ?? path.relative(directory, GENERIC_DOCKERFILE);
 };
 
 /**
@@ -220,17 +282,7 @@ const readStageImageTargets = async (directory: string, stage: string): Promise<
     return [];
   }
 
-  const dockerfileCandidates = [
-    path.join(stageVariables.CONFIG_DIR, 'docker', `${imageName}.Dockerfile`),
-    path.join('docker', `${imageName}.Dockerfile`),
-  ];
-
-  const projectDockerfilePath = await findFirstPassing(
-    dockerfileCandidates,
-    async (candidate) => file(path.join(directory, candidate)).exists(),
-  );
-
-  const dockerfilePath = projectDockerfilePath ?? path.relative(directory, GENERIC_DOCKERFILE);
+  const dockerfilePath = await findDockerfile(directory, stageVariables, imageName);
   const dockerfileText = await file(path.join(directory, dockerfilePath)).text();
   const argumentValues = await readArgumentValues(directory, readArgumentNames(dockerfileText), stage);
 
@@ -238,6 +290,7 @@ const readStageImageTargets = async (directory: string, stage: string): Promise<
     {
       aliases: splitWords(stageVariables.IMAGE_ALIASES),
       arguments: readBuildArguments(dockerfileText, argumentValues),
+      base: readTargetBase(dockerfileText, stageVariables.IMAGE_TARGET),
       dockerfile: dockerfilePath,
       name: imageName,
       suffix: stageVariables.IMAGE_SUFFIX,

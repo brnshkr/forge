@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { FORGE_DIRECTORY } from '#src/shared/make';
 import { GHCR } from '#src/shared/registry';
 import { readArgumentNames, readBuildArguments, readImageTargets } from '#src/shared/release/images';
+import { packageName } from '#src/shared/utils/package-json';
 import { createDigest } from '#tests/support/digest';
 import { toReference } from '#tests/support/dotenv';
 import { createRepository } from '#tests/support/repository';
@@ -47,6 +48,11 @@ describe('the build arguments of a Dockerfile', () => {
       name: 'pass an empty value as empty',
       extensions: '',
       passed: ['PHP_EXTENSIONS='],
+    },
+    {
+      name: 'pass a multiline value as one line',
+      extensions: '\n  intl\n  zip\n',
+      passed: ['PHP_EXTENSIONS=intl zip'],
     },
   ])('$name', (scenario) => {
     const argumentValues = {
@@ -95,6 +101,7 @@ describe('the image targets of a repository', () => {
           'latest',
         ],
         arguments: ['ACME_VERSION=1.0.0'],
+        base: `acme/base:${toReference('ACME_VERSION')}`,
         dockerfile: 'docker/acme-user.Dockerfile',
         name: 'acme-user',
         suffix: '',
@@ -143,14 +150,39 @@ describe('the image targets of a repository', () => {
     ]);
   });
 
+  it('use the Dockerfile a stage points to', async () => {
+    const directory = await createRepository({
+      '.env': '',
+      '.env.prod': 'IMAGE_NAME=acme-user\nIMAGE_DOCKERFILE=./docker/acme.Dockerfile\nIMAGE_TARGET=prod\n',
+      'docker/acme.Dockerfile': 'FROM acme/base\n',
+      'docker/acme-user.Dockerfile': 'FROM acme/other\n',
+    });
+
+    await expect(readImageTargets(directory)).resolves.toMatchObject([
+      {
+        dockerfile: 'docker/acme.Dockerfile',
+      },
+    ]);
+  });
+
+  it('refuse a Dockerfile path that does not exist', async () => {
+    const directory = await createRepository({
+      '.env': '',
+      '.env.prod': 'IMAGE_NAME=acme-user\nIMAGE_DOCKERFILE=./docker/acme.Dockerfile\nIMAGE_TARGET=prod\n',
+      'docker/acme-user.Dockerfile': 'FROM acme/other\n',
+    });
+
+    await expect(readImageTargets(directory)).rejects.toThrow('The file "docker/acme.Dockerfile" does not exist.');
+  });
+
   it('build a stage without a Dockerfile of its own from forge\'s generic one', async () => {
     const directory = await createRepository({
       '.env': '',
       '.env.prod': [
         'IMAGE_NAME=acme-user',
         'IMAGE_TARGET=prod',
-        `FORGE_BUILD_IMAGE=${GHCR}/brnshkr/forge-app:1.0-dev`,
-        `FORGE_RUNTIME_IMAGE=${GHCR}/brnshkr/forge-app:1.0`,
+        `FORGE_APP_DEV_IMAGE=${GHCR}/acme/forge:1.0-app-dev`,
+        `FORGE_APP_IMAGE=${GHCR}/acme/forge:1.0-app`,
         '',
       ].join('\n'),
     });
@@ -160,8 +192,8 @@ describe('the image targets of a repository', () => {
     expect(imageTarget?.dockerfile).toBe(path.relative(directory, path.join(FORGE_DIRECTORY, 'docker/app/Dockerfile')));
 
     expect(imageTarget?.arguments).toStrictEqual([
-      `FORGE_BUILD_IMAGE=${GHCR}/brnshkr/forge-app:1.0-dev`,
-      `FORGE_RUNTIME_IMAGE=${GHCR}/brnshkr/forge-app:1.0`,
+      `FORGE_APP_DEV_IMAGE=${GHCR}/acme/forge:1.0-app-dev`,
+      `FORGE_APP_IMAGE=${GHCR}/acme/forge:1.0-app`,
     ]);
   });
 
@@ -170,26 +202,26 @@ describe('the image targets of a repository', () => {
       name: 'from their digests and the forge release .env pins',
       environmentText: '',
       arguments: [
-        `FORGE_BUILD_IMAGE=${GHCR}/brnshkr/forge-app:1-dev@${BUILD_DIGEST}`,
-        `FORGE_RUNTIME_IMAGE=${GHCR}/brnshkr/forge-app:1@${RUNTIME_DIGEST}`,
+        `FORGE_APP_DEV_IMAGE=${GHCR}/acme/forge:1-app-dev@${BUILD_DIGEST}`,
+        `FORGE_APP_IMAGE=${GHCR}/acme/forge:1-app@${RUNTIME_DIGEST}`,
       ],
     },
     {
       name: 'from a full reference over its digest',
-      environmentText: `FORGE_RUNTIME_IMAGE=${GHCR}/acme/runtime:1.0\n`,
+      environmentText: `FORGE_APP_IMAGE=${GHCR}/acme/runtime:1.0\n`,
       arguments: [
-        `FORGE_BUILD_IMAGE=${GHCR}/brnshkr/forge-app:1-dev@${BUILD_DIGEST}`,
-        `FORGE_RUNTIME_IMAGE=${GHCR}/acme/runtime:1.0`,
+        `FORGE_APP_DEV_IMAGE=${GHCR}/acme/forge:1-app-dev@${BUILD_DIGEST}`,
+        `FORGE_APP_IMAGE=${GHCR}/acme/runtime:1.0`,
       ],
     },
   ])('compose forge\'s images $name', async (scenario) => {
     const directory = await createRepository({
-      '.env': 'FORGE_TAG=1\n',
+      '.env': `FORGE_TAG=1\nFORGE_IMAGE_NAMESPACE=${GHCR}/acme\n`,
       '.env.prod': [
         'IMAGE_NAME=acme-user',
         'IMAGE_TARGET=prod',
-        `FORGE_BUILD_IMAGE_DIGEST=${BUILD_DIGEST}`,
-        `FORGE_RUNTIME_IMAGE_DIGEST=${RUNTIME_DIGEST}`,
+        `FORGE_APP_DEV_IMAGE_DIGEST=${BUILD_DIGEST}`,
+        `FORGE_APP_IMAGE_DIGEST=${RUNTIME_DIGEST}`,
         scenario.environmentText,
       ].join('\n'),
     });
@@ -199,41 +231,38 @@ describe('the image targets of a repository', () => {
     expect(imageTarget?.arguments).toStrictEqual(scenario.arguments);
   });
 
-  it.each([
-    {
-      suffix: '-dev',
-      buildImages: [
-        `FORGE_BUILD_IMAGE=${GHCR}/brnshkr/forge-app:1-dev@${BUILD_DIGEST}`,
-      ],
-    },
-    {
-      suffix: '',
-      buildImages: [],
-    },
-  ])('build on the application image a project develops on only where its suffix is -dev: "$suffix"', async (scenario) => {
+  it('compose any forge image a Dockerfile asks for, under its own name or the project\'s stack', async () => {
     const directory = await createRepository({
-      '.env': `FORGE_TAG=1\nFORGE_APP_IMAGE_SUFFIX=${scenario.suffix}\nFORGE_APP_IMAGE_DIGEST=${BUILD_DIGEST}\n`,
-      '.env.prod': `IMAGE_NAME=acme-user\nIMAGE_TARGET=prod\nFORGE_RUNTIME_IMAGE_DIGEST=${RUNTIME_DIGEST}\n`,
-      'docker/acme-user.Dockerfile': 'ARG FORGE_BUILD_IMAGE=""\nARG FORGE_RUNTIME_IMAGE\nFROM acme/base AS prod\n',
+      '.env': [
+        'FORGE_TAG=1',
+        `FORGE_IMAGE_NAMESPACE=${GHCR}/acme`,
+        `FORGE_IMAGE_NAME=${packageName}-php`,
+        `FORGE_CLI_IMAGE_NAME=${packageName}-bun`,
+        `FORGE_CLI_IMAGE_DIGEST=${BUILD_DIGEST}`,
+        `FORGE_APP_IMAGE_DIGEST=${RUNTIME_DIGEST}`,
+        '',
+      ].join('\n'),
+      '.env.prod': 'IMAGE_NAME=acme-user\nIMAGE_TARGET=prod\n',
+      'docker/acme-user.Dockerfile': 'ARG FORGE_CLI_IMAGE\nARG FORGE_APP_IMAGE\nFROM acme/base AS prod\n',
     });
 
     const [imageTarget] = await readImageTargets(directory);
 
     expect(imageTarget?.arguments).toStrictEqual([
-      ...scenario.buildImages,
-      `FORGE_RUNTIME_IMAGE=${GHCR}/brnshkr/forge-app:1@${RUNTIME_DIGEST}`,
+      `FORGE_CLI_IMAGE=${GHCR}/acme/forge-bun:1-cli@${BUILD_DIGEST}`,
+      `FORGE_APP_IMAGE=${GHCR}/acme/forge-php:1-app@${RUNTIME_DIGEST}`,
     ]);
   });
 
   it('refuse a forge image digest without the forge release', async () => {
     const directory = await createRepository({
       '.env': '',
-      '.env.prod': `IMAGE_NAME=acme-user\nFORGE_BUILD_IMAGE_DIGEST=${BUILD_DIGEST}\nFORGE_RUNTIME_IMAGE=${GHCR}/acme/runtime:1.0\n`,
+      '.env.prod': `IMAGE_NAME=acme-user\nFORGE_APP_DEV_IMAGE_DIGEST=${BUILD_DIGEST}\nFORGE_APP_IMAGE=${GHCR}/acme/runtime:1.0\n`,
     });
 
     await expect(readImageTargets(directory))
       .rejects
-      .toThrow('Variable "FORGE_TAG" not found, but "FORGE_BUILD_IMAGE_DIGEST" requires it.');
+      .toThrow('Variable "FORGE_TAG" not found, but "FORGE_APP_DEV_IMAGE_DIGEST" requires it.');
   });
 
   it('refuse a stage on forge\'s generic Dockerfile that pins neither image', async () => {
@@ -243,8 +272,8 @@ describe('the image targets of a repository', () => {
     });
 
     await expect(readImageTargets(directory)).rejects.toThrow([
-      'Build argument "FORGE_BUILD_IMAGE" has no default and no value.',
-      'Build argument "FORGE_RUNTIME_IMAGE" has no default and no value.',
+      'Build argument "FORGE_APP_DEV_IMAGE" has no default and no value.',
+      'Build argument "FORGE_APP_IMAGE" has no default and no value.',
     ].join('\n'));
   });
 

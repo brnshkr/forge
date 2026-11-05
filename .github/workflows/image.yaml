@@ -1,0 +1,108 @@
+name: Image
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: Runner label for every job, defaults to the `RUNNER_IMAGE` variable
+        required: false
+        type: string
+
+      images:
+        description: JSON array of the image targets to build, verify and scan, as `resolve-targets.ts` prints them
+        required: true
+        type: string
+
+      buildkit:
+        description: BuildKit image the builder runs
+        required: true
+        type: string
+
+      version:
+        description: Version the images are labeled with, empty outside a release
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  DO_NOT_TRACK: 1
+
+jobs:
+  image:
+    name: ${{ matrix.name }} ${{ matrix.target }}
+    if: ${{ inputs.images != '[]' }}
+    runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.images) }}
+    env:
+      LOCAL_TAG: local/${{ matrix.name }}:${{ matrix.target }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Toolchain
+        uses: $/.github/actions/setup
+
+      - name: Export Image Context
+        uses: $/.github/actions/image-context
+        with:
+          dockerfile: ${{ matrix.dockerfile }}
+          arguments: ${{ matrix.arguments }}
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=${{ inputs.buildkit }}
+
+      - name: Read Image Metadata
+        id: metadata
+        uses: $/.github/actions/image-metadata
+        with:
+          dockerfile: ${{ matrix.dockerfile }}
+          name: ${{ matrix.name }}
+          tags: ${{ matrix.tags }}
+          version: ${{ inputs.version }}
+
+      - name: Build Image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        env:
+          DOCKER_BUILD_CHECKS_ANNOTATIONS: false
+          DOCKER_BUILD_RECORD_UPLOAD: false
+          DOCKER_BUILD_SUMMARY: false
+        with:
+          context: ./.cache/image.context
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          build-args: ${{ matrix.arguments }}
+          load: true
+          tags: ${{ env.LOCAL_TAG }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.cache }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.cache }}
+
+      - name: Verify Image
+        env:
+          DOCKERFILE: ${{ matrix.dockerfile }}
+          NAME: ${{ matrix.name }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          script=$(dirname "$DOCKERFILE")/verify.sh
+
+          if [ -f "$script" ]; then
+            sh "$script" "$LOCAL_TAG" "$NAME" "$TARGET"
+          fi
+
+      - name: Scan Image
+        uses: $/.github/actions/scan-image
+        with:
+          image: ${{ env.LOCAL_TAG }}
+          category: trivy-${{ matrix.name }}-${{ matrix.target }}

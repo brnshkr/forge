@@ -1,8 +1,43 @@
 # 📦 Images [🔍](../../docker/ 'Go to source')
 
-Forge publishes PHP-only, Bun-only, and combined toolchain and runtime images. Every tool version in them is pinned
-in one place and moves together with a Forge release, so your machine, CI, and your servers run exactly the same
-binaries.
+Toolchain and runtime images for PHP, Bun, or both, pinned by every Forge release.
+
+## Usage
+
+Pick a stack in `.env`, then pin the image of each role you use:
+
+```ini
+# ./.env
+
+FORGE_TAG=<tag>
+FORGE_IMAGE_NAME=forge-php
+FORGE_CLI_IMAGE_DIGEST=sha256:<digest> # <version>
+```
+
+The [Compose fragments](../compose/index.md) turn this into `docker.io/brnshkr/forge-php:<tag>-cli@sha256:<digest>`.
+Read a digest once with `docker buildx imagetools inspect docker.io/brnshkr/forge-php:<tag>-cli`.
+
+## Stacks
+
+| Image | Holds |
+| --- | --- |
+| `forge` | PHP, Composer, and Bun. The default. |
+| `forge-php` | PHP and Composer |
+| `forge-bun` | Bun |
+
+Every release is published to `docker.io/brnshkr` and `ghcr.io/brnshkr`. Projects pull from Docker Hub by default.
+`FORGE_NAMESPACE=ghcr.io/brnshkr` pulls from GHCR.
+
+## Roles
+
+Each stack has four roles. The role is the tag's suffix.
+
+| Role | Used for | Built on |
+| --- | --- | --- |
+| `-cli` | libraries and tools, and their CI | `php:<version>-cli-<debian-suite>`, `oven/bun:<version>-debian` for `forge-bun` |
+| `-cli-chromium` | browser tests | the same base as `-cli` |
+| `-app-dev` | developing an app, building its image | `dunglas/frankenphp`, `oven/bun` for `forge-bun` |
+| `-app` | running an app | the same base as `-app-dev` |
 
 ```mermaid
 %%{init: {
@@ -10,62 +45,72 @@ binaries.
 }}%%
 flowchart LR
   php("<h3>php:&lt;version&gt;-cli-&lt;debian-suite&gt;</h3>")
-  bun("<h3>oven/bun:&lt;version&gt;-debian</h3>")
   frankenphp("<h3>dunglas/frankenphp</h3>")
+  bun("<h3>oven/bun:&lt;version&gt;-debian</h3>")
 
-  subgraph phpAppRuntime [forge-php-app]
-    phpAppDev("<h3>forge-php-app:&lt;tag&gt;-dev</h3><table><tr><td>Used for</td><td>Developing PHP-only web projects</td></tr><tr><td>Adds</td><td>Composer · Xdebug · PCOV</td></tr></table>")
-    phpApp("<h3>forge-php-app:&lt;tag&gt;</h3><table><tr><td>Used for</td><td>PHP-only web apps</td></tr><tr><td>Runs</td><td>FrankenPHP as www-data</td></tr></table>")
+  subgraph forgeStack [forge]
+    forgeCli("<h3>forge:&lt;tag&gt;-cli</h3><table><tr><td>Used for</td><td>libraries and tools, and their CI</td></tr></table>")
+    forgeCliChromium("<h3>forge:&lt;tag&gt;-cli-chromium</h3><table><tr><td>Used for</td><td>browser tests</td></tr></table>")
+    forgeAppDev("<h3>forge:&lt;tag&gt;-app-dev</h3><table><tr><td>Used for</td><td>developing an app, building its image</td></tr></table>")
+    forgeApp("<h3>forge:&lt;tag&gt;-app</h3><table><tr><td>Used for</td><td>running an app</td></tr></table>")
   end
 
-  subgraph bunAppRuntime [forge-bun-app]
-    bunAppDev("<h3>forge-bun-app:&lt;tag&gt;-dev</h3><table><tr><td>Used for</td><td>Developing Bun web projects</td></tr><tr><td>Adds</td><td>Bun watch mode and the app build hook</td></tr></table>")
-    bunApp("<h3>forge-bun-app:&lt;tag&gt;</h3><table><tr><td>Used for</td><td>Bun-only web apps</td></tr><tr><td>Runs</td><td>Bun as an unprivileged user</td></tr></table>")
+  subgraph forgePhpStack [forge-php]
+    forgePhpCli("<h3>forge-php:&lt;tag&gt;-cli</h3><table><tr><td>Used for</td><td>libraries and tools, and their CI</td></tr></table>")
+    forgePhpCliChromium("<h3>forge-php:&lt;tag&gt;-cli-chromium</h3><table><tr><td>Used for</td><td>browser tests</td></tr></table>")
+    forgePhpAppDev("<h3>forge-php:&lt;tag&gt;-app-dev</h3><table><tr><td>Used for</td><td>developing an app, building its image</td></tr></table>")
+    forgePhpApp("<h3>forge-php:&lt;tag&gt;-app</h3><table><tr><td>Used for</td><td>running an app</td></tr></table>")
   end
 
-  subgraph appRuntime [forge-app]
-    appDev("<h3>forge-app:&lt;tag&gt;-dev</h3><table><tr><td>Used for</td><td>Developing PHP and Bun web projects</td></tr><tr><td>Adds</td><td>Composer · Bun · Xdebug · PCOV</td></tr></table>")
-    app("<h3>forge-app:&lt;tag&gt;</h3><table><tr><td>Used for</td><td>Combined PHP and Bun web apps</td></tr><tr><td>Runs</td><td>FrankenPHP and Bun</td></tr></table>")
+  subgraph forgeBunStack [forge-bun]
+    forgeBunCli("<h3>forge-bun:&lt;tag&gt;-cli</h3><table><tr><td>Used for</td><td>libraries and tools, and their CI</td></tr></table>")
+    forgeBunCliChromium("<h3>forge-bun:&lt;tag&gt;-cli-chromium</h3><table><tr><td>Used for</td><td>browser tests</td></tr></table>")
+    forgeBunAppDev("<h3>forge-bun:&lt;tag&gt;-app-dev</h3><table><tr><td>Used for</td><td>developing an app, building its image</td></tr></table>")
+    forgeBunApp("<h3>forge-bun:&lt;tag&gt;-app</h3><table><tr><td>Used for</td><td>running an app</td></tr></table>")
   end
 
-  subgraph toolchains [toolchain images]
-    forge("<h3>forge:&lt;tag&gt;</h3><table><tr><td>Used for</td><td>Projects with PHP and JavaScript</td></tr><tr><td>Holds</td><td>PHP · Composer · Bun</td></tr></table>")
-    forgePhp("<h3>forge-php:&lt;tag&gt;</h3><table><tr><td>Used for</td><td>PHP libraries and tools</td></tr><tr><td>Holds</td><td>PHP · Composer</td></tr></table>")
-    forgeBun("<h3>forge-bun:&lt;tag&gt;</h3><table><tr><td>Used for</td><td>JavaScript libraries and tools</td></tr><tr><td>Holds</td><td>Bun</td></tr></table>")
-  end
-
-  php --> forge
-  php --> forgePhp
-  bun --> forgeBun
-  bun --> forge
-  frankenphp --> appDev
-  frankenphp --> app
-  bun --> appDev
-  bun --> app
-  frankenphp --> phpAppDev
-  frankenphp --> phpApp
-  bun --> bunAppDev
-  bun --> bunApp
+  php --> forgeCli
+  php --> forgePhpCli
+  frankenphp --> forgeAppDev
+  frankenphp --> forgeApp
+  frankenphp --> forgePhpAppDev
+  frankenphp --> forgePhpApp
+  bun --> forgeBunCli
+  bun --> forgeBunAppDev
+  bun --> forgeBunApp
+  bun -->|copies Bun| forgeStack
+  forgeCli --> forgeCliChromium
+  forgePhpCli --> forgePhpCliChromium
+  forgeBunCli --> forgeBunCliChromium
 ```
 
-| Image | Tags |
+## Tags
+
+A stable release `1.2.3` pushes these tags for each role:
+
+| Tag | Example |
 | --- | --- |
-| `forge`, `forge-php`, `forge-bun` | `<tag>`, and `<tag>-chromium` with Chromium, ChromeDriver, and fonts for browser tests |
-| `forge-app`, `forge-php-app`, `forge-bun-app` | `<tag>` to run, `<tag>-dev` to develop |
+| major | `forge:1-cli` |
+| minor | `forge:1.2-cli` |
+| version | `forge:1.2.3-cli` |
+| toolchain | `forge:php8.5-bun1.4-cli`, `forge-php:php8.5-app`, `forge-bun:bun1.4-app-dev` |
 
-Every toolchain image also holds Git, Make, Graphviz, ShellCheck, hadolint, and actionlint, so
-[`@brnshkr/config`](https://github.com/brnshkr/config)'s checks run without anything else installed.
-Every image with PHP comes with the extensions `bcmath`, `exif`, `imagick` (JPEG, PNG, GIF, WebP, and AVIF),
-`intl`, `opcache`, `pcntl`, `pdo_pgsql`, `redis`, and `zip`, and `forge-install` adds more later.
-The PHP runtime images add `apcu` for Symfony's system cache.
+A prerelease pushes only its own version, e.g. `forge:1.3.0-rc.1-app`. Below 1.0.0 there is no major tag.
+No image is tagged `latest`.
 
-Every runtime ends as an unprivileged user and sends no telemetry. `forge-php-app` contains PHP only;
-`forge-app` contains PHP and Bun; `forge-bun-app` contains Bun only. Runtime images read code but write only `var/`
-([Production](../compose/production.md), [Bun app](../compose/bun-app.md)).
+## Contents
 
-- [Web server](./web-server.md) — the Caddyfile and the switches that change it
-- [PHP settings](./php.md) — what the images set and how you override it
-- [Your image](./your-image.md) — building your application's image, with or without a Dockerfile of your own
+| Role | Holds |
+| --- | --- |
+| `-cli` | Git, Make, Graphviz, ShellCheck, hadolint, and actionlint. With PHP also Xdebug, PCOV, and `php.ini-development`. |
+| `-cli-chromium` | the same, plus Chromium, ChromeDriver, and fonts with emoji. CJK fonts are not included. |
+| `-app-dev` | Git, Make, unzip, and `original-awk`. With PHP also Composer, Xdebug, PCOV, `apcu`, and `php.ini-development`. |
+| `-app` | no Git and no Make. With PHP also `apcu` and `php.ini-production`, plus JIT. |
 
-The tags each release publishes are listed in the [Releases docs](../releases.md#tags),
-and how their versions stay current in the [Pins docs](../pins.md).
+Every image with PHP has `bcmath`, `exif`, `imagick` (JPEG, PNG, GIF, WebP, AVIF), `intl`, `opcache`, `pcntl`,
+`pdo_pgsql`, `redis`, and `zip`. `forge-install` adds more at build time, see [your image](./your-image.md).
+The [PHP settings](./php.md) list what each `php.ini` changes.
+
+`-app` ends as `www-data`. It reads your code and writes only `var/`. A deploy refuses an `-app-dev` image in production.
+Every other image ends as the unprivileged user `forge`. No image sends telemetry.
+`forge` and `forge-php` serve your app with FrankenPHP, see the [web server](./web-server.md).

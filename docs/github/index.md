@@ -1,24 +1,13 @@
 # 🐙 GitHub [🔍](../../.github/workflows/ 'Go to source')
 
-Your repository calls `ci.yaml` on pushes and pull requests, and `maintenance.yaml`
-on a schedule and whenever another repository of your organization publishes a release:
-
-```mermaid
-graph LR
-  push[push or pull request] --> ci[ci.yaml]
-  ci --> reword[reword.yaml]
-  ci --> check[check.yaml]
-  ci --> publish[publish.yaml]
-  publish --> deploy[deploy.yaml]
-  schedule[schedule or release] --> maintenance[maintenance.yaml]
-  maintenance --> bump[bump.yaml]
-  maintenance --> security[security.yaml]
-```
+Your repository calls two of Forge's workflows. They call the rest.
 
 ## Usage
 
 ```yaml
 # ./.github/workflows/ci.yaml
+
+name: CI
 
 on:
   push:
@@ -31,8 +20,12 @@ on:
       - dev/*
       - release/*
 
+permissions:
+  contents: read
+
 jobs:
   ci:
+    name: CI
     permissions:
       contents: write
       id-token: write
@@ -51,6 +44,8 @@ jobs:
 ```yaml
 # ./.github/workflows/maintenance.yaml
 
+name: Maintenance
+
 on:
   schedule:
     - cron: 20 16 * * 2,5
@@ -61,8 +56,12 @@ on:
 
   workflow_dispatch: {}
 
+permissions:
+  contents: read
+
 jobs:
   maintenance:
+    name: Maintenance
     permissions:
       contents: read
       security-events: write
@@ -72,20 +71,37 @@ jobs:
       BOT_PRIVATE_KEY: ${{ secrets.BOT_PRIVATE_KEY }}
 ```
 
-Schedule it at least twice a week, so the bump's record of new versions stays in the Actions cache
-([eviction policy](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#usage-limits-and-eviction-policy)).
-Their inputs are described in the [workflow files](../../.github/workflows),
-and the settings they need in the [Setup docs](./setup.md).
+`maintenance.yaml` also runs when another repository of your organization publishes a release.
+Schedule it at least twice a week. The bump's record of new versions then stays in the Actions cache.
+GitHub may start a scheduled run hours late under load, and may drop it.
+Take a look at the [setup](./setup.md) for what your organization and repository need once.
 
-## Customizing
+```mermaid
+graph LR
+  push[push or pull request] --> ci[ci.yaml]
+  ci --> reword[reword.yaml]
+  ci --> check[check.yaml]
+  ci --> publish[publish.yaml]
+  publish --> image[image.yaml]
+  publish --> deploy[deploy.yaml]
+  schedule[schedule or release] --> maintenance[maintenance.yaml]
+  maintenance --> bump[bump.yaml]
+  maintenance --> security[security.yaml]
+```
 
-Each workflow can also be called on its own:
+## Workflows
 
-- [Checks](./checks.md) — `check.yaml`, the fixes and the test matrix
-- [Publishing](./publishing.md) — `publish.yaml`, images, packages, and GitHub Pages
-- [Deploying](./deploying.md) — `deploy.yaml` and its environments
-- [Security](./security.md) — `security.yaml` and its four scanners
-- [Dependabot](./dependabot.md) — `reword.yaml`
-- `bump.yaml` — described in the [Pins docs](../pins.md#your-projects-pins)
-- [Skipping jobs](./skipping-jobs.md) — turning off what your repository doesn't want
-- [Without `@brnshkr/config`](./without-config.md) — the commands the workflows run
+Every workflow takes the inputs `runner` and `skip`. `runner` defaults to the `RUNNER_IMAGE` variable.
+Each one can also be called on its own:
+
+| Workflow | Page |
+| --- | --- |
+| `check.yaml` | [Checks](./checks.md) |
+| `publish.yaml`, `image.yaml` | [Publishing](./publishing.md) |
+| `deploy.yaml` | [Deploying](./deploying.md) |
+| `security.yaml` | [Security](./security.md) |
+| `reword.yaml` | [Dependabot](./dependabot.md) |
+| `bump.yaml` | [Pins](../pins.md) |
+| the `skip` input | [Skipping jobs](./skipping-jobs.md) |
+
+`ci.yaml` passes its inputs on to these. The [workflow files](../../.github/workflows) describe every input.

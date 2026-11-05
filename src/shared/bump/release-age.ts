@@ -4,7 +4,14 @@ import { readDigest } from '#src/shared/pins/digests';
 import { readPlainAssignments } from '#src/shared/pins/dotenv';
 import { parseImageReference } from '#src/shared/pins/references';
 import { getLatestTag, getVersionFromTag, listVersionCandidates } from '#src/shared/pins/version-tags';
-import { fetchDigest, fetchTags } from '#src/shared/registry';
+
+import {
+  DOCKER_HUB,
+  fetchDigest,
+  fetchTags,
+  GHCR,
+} from '#src/shared/registry';
+
 import { readEnvironmentValue } from '#src/shared/utils/environment';
 
 import {
@@ -14,6 +21,7 @@ import {
   readOwnValue,
 } from '#src/shared/utils/object';
 
+import { packageOrganization } from '#src/shared/utils/package-json';
 import { before, parseSeconds } from '#src/shared/utils/string';
 
 import type { PinnedImage } from '#src/shared/pins/references';
@@ -56,7 +64,11 @@ type Sighting = readonly [string, string];
 const DEFAULT_MINIMUM_RELEASE_AGE = '604800';
 const DISABLED_MINIMUM_RELEASE_AGE = '0';
 const MILLISECONDS_PER_SECOND = 1_000;
-const EXEMPT_REFERENCE_PREFIX = 'ghcr.io/brnshkr/';
+
+const EXEMPT_REFERENCE_PREFIXES = [
+  DOCKER_HUB,
+  GHCR,
+].map((registry) => `${registry}/${packageOrganization}/`);
 
 /**
  * @throws {Error}
@@ -119,7 +131,7 @@ export const getCandidateSelection = (
   isRelevant: (seenReference: string) => boolean,
 ): CandidateSelection => {
   if (search.candidateReference === search.pinnedReference
-    || search.candidateReference.startsWith(EXEMPT_REFERENCE_PREFIX)) {
+    || EXEMPT_REFERENCE_PREFIXES.some((prefix) => search.candidateReference.startsWith(prefix))) {
     return {
       reference: search.candidateReference,
       sightings: {},

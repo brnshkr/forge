@@ -9,13 +9,14 @@ import { createRepository } from '#tests/support/repository';
 const REPOSITORY_FILES = {
   '.env': '',
   '.env.prod': 'IMAGE_NAME=acme-user\nIMAGE_TARGET=prod\nIMAGE_ALIASES=latest\n',
-  'compose/user.yaml': '',
+  'compose/user.yaml': 'services:\n  user:\n    image: acme/user\n',
   'composer.json': '{"name": "acme/user"}',
   'docker/acme-user.Dockerfile': 'FROM acme/base\n',
 };
 
 const IMAGE = {
   arguments: '',
+  cache: 'acme-user-prod',
   dockerfile: 'docker/acme-user.Dockerfile',
   name: 'acme-user',
   target: 'prod',
@@ -52,6 +53,10 @@ describe('the resolve-targets script', () => {
 
     expect(readOutputs(standardOutputWrites)).toStrictEqual({
       deploy: {},
+      'first-wave-images': [{
+        ...IMAGE,
+        tags: `${GHCR}/acme/acme-user:1.2.3-rc.1`,
+      }],
       images: [{
         ...IMAGE,
         tags: `${GHCR}/acme/acme-user:1.2.3-rc.1`,
@@ -66,6 +71,7 @@ describe('the resolve-targets script', () => {
         packagist: 'acme/user',
         version: '1.2.3-rc.1',
       },
+      'second-wave-images': [],
       staging: [],
     });
   });
@@ -106,6 +112,10 @@ describe('the resolve-targets script', () => {
 
     expect(readOutputs(standardOutputWrites)).toStrictEqual({
       deploy: {},
+      'first-wave-images': [{
+        ...IMAGE,
+        tags: '',
+      }],
       images: [{
         ...IMAGE,
         tags: '',
@@ -120,8 +130,77 @@ describe('the resolve-targets script', () => {
         packagist: 'acme/user',
         version: '',
       },
+      'second-wave-images': [],
       staging: [],
     });
+  });
+
+  it('builds the first stage of each Dockerfile base in the first wave, sharing one cache per Dockerfile', async () => {
+    const directory = await createRepository({
+      '.env': '',
+      '.env.acme-app': 'IMAGE_NAME=acme\nIMAGE_DOCKERFILE=./docker/acme.Dockerfile\nIMAGE_TARGET=app\n',
+      '.env.acme-cli': 'IMAGE_NAME=acme\nIMAGE_DOCKERFILE=./docker/acme.Dockerfile\nIMAGE_TARGET=cli\n',
+      '.env.acme-cli-browser': 'IMAGE_NAME=acme\nIMAGE_DOCKERFILE=./docker/acme.Dockerfile\nIMAGE_TARGET=cli-browser\n',
+      'composer.json': '{"name": "acme/user"}',
+      'docker/acme.Dockerfile': 'FROM acme/cli AS cli\nFROM cli AS cli-browser\nFROM acme/app AS app\n',
+    });
+
+    const standardOutputWrites = captureWrites(process.stdout);
+
+    await expect(main(['--group-image-builds=true', '--reference=refs/heads/dev/1.2'], directory)).resolves.toBe(0);
+
+    expect(readOutputs(standardOutputWrites)).toMatchObject({
+      'first-wave-images': [
+        {
+          cache: 'docker/acme.Dockerfile',
+          target: 'app',
+        },
+        {
+          cache: 'docker/acme.Dockerfile',
+          target: 'cli',
+        },
+      ],
+      'second-wave-images': [
+        {
+          cache: 'docker/acme.Dockerfile',
+          target: 'cli-browser',
+        },
+      ],
+    });
+  });
+
+  it('builds every image in the first wave with a cache of its own when grouping is off', async () => {
+    const directory = await createRepository({
+      '.env': '',
+      '.env.acme-cli': 'IMAGE_NAME=acme\nIMAGE_DOCKERFILE=./docker/acme.Dockerfile\nIMAGE_TARGET=cli\n',
+      '.env.acme-cli-browser': 'IMAGE_NAME=acme\nIMAGE_DOCKERFILE=./docker/acme.Dockerfile\nIMAGE_TARGET=cli-browser\n',
+      'composer.json': '{"name": "acme/user"}',
+      'docker/acme.Dockerfile': 'FROM acme/cli AS cli\nFROM cli AS cli-browser\n',
+    });
+
+    const standardOutputWrites = captureWrites(process.stdout);
+
+    await expect(main(['--group-image-builds=false', '--reference=refs/heads/dev/1.2'], directory)).resolves.toBe(0);
+
+    expect(readOutputs(standardOutputWrites)).toMatchObject({
+      'first-wave-images': [
+        {
+          cache: 'acme-cli',
+        },
+        {
+          cache: 'acme-cli-browser',
+        },
+      ],
+      'second-wave-images': [],
+    });
+  });
+
+  it('refuses a grouping option that is neither true nor false', async () => {
+    const directory = await createRepository(REPOSITORY_FILES);
+
+    await expect(main(['--group-image-builds=yes', '--reference=refs/heads/dev/1.2'], directory))
+      .rejects
+      .toThrow('Option "group-image-builds" must be "true" or "false", "yes" given.');
   });
 
   it.each([

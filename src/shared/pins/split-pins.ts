@@ -1,9 +1,9 @@
-import path from 'node:path';
-
 import { DIGEST_SOURCE } from '#src/shared/pins/digests';
 import { formatVersionComment, VERSION_COMMENT_SOURCE } from '#src/shared/pins/references';
+import { DOCKER_HUB } from '#src/shared/registry';
 import { readEnvironmentValue } from '#src/shared/utils/environment';
 import { objectFromEntries, readOwnValue } from '#src/shared/utils/object';
+import { packageName, packageOrganization } from '#src/shared/utils/package-json';
 import { compileLinearPattern, readGroup } from '#src/shared/utils/pattern';
 
 import type { StringRecord } from '#src/shared/types/core';
@@ -22,40 +22,40 @@ export interface SplitReference {
 }
 
 export interface SplitDefaults {
-  readonly forgeRepository: string;
-  readonly forgeRepositoryOwner: string;
+  readonly forgeFragmentNamespace: string;
+  readonly forgeImageNamespace: string;
   readonly repositories: Readonly<Record<string, string>>;
+  readonly tagSuffixes: Readonly<Record<string, string>>;
 }
 
 export interface ForgeImageRole {
-  readonly defaultName: string;
   readonly nameKey: string;
   readonly suffix: string;
-  readonly suffixKey?: string;
 }
 
-const FORGE_APP_ROLE = <const>{
-  defaultName: 'forge-app',
-  nameKey: 'FORGE_APP_IMAGE_NAME',
-  suffix: '',
-} satisfies ForgeImageRole;
+export const FORGE_IMAGE_NAME_KEY = 'FORGE_IMAGE_NAME';
+
+const FORGE_PREFIX = 'FORGE_';
+const DEFAULT_FORGE_IMAGE_NAME = packageName;
+const DEFAULT_FORGE_NAMESPACE = `${DOCKER_HUB}/${packageOrganization}`;
 
 export const FORGE_IMAGE_ROLES: ReadonlyMap<string, ForgeImageRole> = new Map([
-  ['FORGE_APP', {
-    ...FORGE_APP_ROLE,
-    suffixKey: 'FORGE_APP_IMAGE_SUFFIX',
+  ['FORGE_APP_DEV', {
+    nameKey: 'FORGE_APP_DEV_IMAGE_NAME',
+    suffix: '-app-dev',
   }],
-  ['FORGE_BUILD', {
-    ...FORGE_APP_ROLE,
-    suffix: '-dev',
+  ['FORGE_APP', {
+    nameKey: 'FORGE_APP_IMAGE_NAME',
+    suffix: '-app',
+  }],
+  ['FORGE_CLI_CHROMIUM', {
+    nameKey: 'FORGE_CLI_CHROMIUM_IMAGE_NAME',
+    suffix: '-cli-chromium',
   }],
   ['FORGE_CLI', {
-    defaultName: 'forge',
     nameKey: 'FORGE_CLI_IMAGE_NAME',
-    suffix: '',
-    suffixKey: 'FORGE_CLI_IMAGE_SUFFIX',
+    suffix: '-cli',
   }],
-  ['FORGE_RUNTIME', FORGE_APP_ROLE],
 ]);
 
 const SPLIT_PIN_SOURCE = String.raw`^(?<digestKey>(?<prefix>[A-Z][\dA-Z_]*?)_(?<kind>IMAGE|FRAGMENT)_DIGEST)=["']?`;
@@ -66,8 +66,16 @@ const SPLIT_PIN_SOURCE = String.raw`^(?<digestKey>(?<prefix>[A-Z][\dA-Z_]*?)_(?<
 const createRepositoryDefaultPattern = (): RegExp => compileLinearPattern(
   [
     String.raw`\$\{(?<prefix>[A-Z][\dA-Z_]*)_REPOSITORY:-`,
-    String.raw`(?<owner>\$\{FORGE_REPOSITORY_OWNER:\?[^\}]*\})?(?<repository>[^\}]+)\}`,
+    String.raw`(?<owner>\$\{FORGE_IMAGE_NAMESPACE:-\$\{FORGE_NAMESPACE:\?[^\}]*\}\})?(?<repository>[^\}]+)\}`,
   ].join(''),
+  'gv',
+);
+
+/**
+ * @throws {Error}
+ */
+const createTagSuffixPattern = (): RegExp => compileLinearPattern(
+  String.raw`\$\{[A-Z][\dA-Z_]*_TAG:\?[^\}]*\}(?<suffix>[^\s@\}]*)@\$\{(?<prefix>[A-Z][\dA-Z_]*)_IMAGE_DIGEST:`,
   'gv',
 );
 
@@ -78,6 +86,8 @@ const createAssignmentPattern = (key: string): RegExp => compileLinearPattern(
   String.raw`^(?<head>${key}=)(?<quote>["']?)[^\s"'#]*\k<quote>${VERSION_COMMENT_SOURCE}`,
   'gmv',
 );
+
+export const joinContinuedLines = (text: string): string => text.replaceAll(/\\\n[\t ]*/gv, '');
 
 /**
  * @throws {Error}
@@ -97,12 +107,26 @@ export const findSplitPins = (text: string): SplitPin[] => Array.from(
  */
 export const readRepositoryDefaults = (
   fragmentTexts: readonly string[],
-  forgeRepositoryOwner: string,
-): Record<string, string> => objectFromEntries(
-  fragmentTexts.flatMap((text) => Array.from(text.matchAll(createRepositoryDefaultPattern()), (match) => <const>[
+  forgeImageNamespace: string,
+): Record<string, string> => objectFromEntries(fragmentTexts.flatMap((text) => Array.from(
+  joinContinuedLines(text).matchAll(createRepositoryDefaultPattern()),
+  (match) => <const>[
     readGroup(match.groups, 'prefix'),
-    `${match.groups?.['owner'] === undefined ? '' : forgeRepositoryOwner}${readGroup(match.groups, 'repository')}`,
-  ])),
+    `${match.groups?.['owner'] === undefined ? '' : forgeImageNamespace}${readGroup(match.groups, 'repository')}`,
+  ],
+)));
+
+/**
+ * @throws {Error}
+ */
+export const readTagSuffixes = (fragmentTexts: readonly string[]): Record<string, string> => objectFromEntries(
+  fragmentTexts.flatMap((text) => Array.from(
+    joinContinuedLines(text).matchAll(createTagSuffixPattern()),
+    (match) => <const>[
+      readGroup(match.groups, 'prefix'),
+      readGroup(match.groups, 'suffix'),
+    ],
+  )),
 );
 
 /**
@@ -122,36 +146,49 @@ const requireSplitValue = (values: StringRecord, key: string, pin: SplitPin): st
  * @throws {Error}
  */
 const createFragmentReference = (pin: SplitPin, values: StringRecord, splitDefaults: SplitDefaults): SplitReference => {
-  const fragmentTagKey = `${pin.prefix}_FRAGMENT_TAG`;
-  const tagKey = readEnvironmentValue(values, fragmentTagKey) === undefined ? 'FORGE_TAG' : fragmentTagKey;
-  const fragmentName = pin.prefix.toLowerCase().replaceAll('_', '-');
-  const tag = requireSplitValue(values, tagKey, pin);
+  if (!pin.prefix.startsWith(FORGE_PREFIX)) {
+    throw new Error(`Fragment pin "${pin.digestKey}" must start with "${FORGE_PREFIX}".`);
+  }
+
+  const tag = requireSplitValue(values, 'FORGE_TAG', pin);
+
+  const fragmentName = pin.prefix
+    .slice(FORGE_PREFIX.length)
+    .toLowerCase()
+    .replaceAll('_', '-');
 
   return {
-    reference: `${splitDefaults.forgeRepository}/compose/${fragmentName}:${tag}@${pin.digest}`,
+    reference: `${splitDefaults.forgeFragmentNamespace}/${packageName}-compose-${fragmentName}:${tag}@${pin.digest}`,
     suffix: '',
-    tagKey,
+    tagKey: 'FORGE_TAG',
   };
 };
 
-export const getForgeRepositoryOwner = (forgeRepository: string): string => path.posix.dirname(forgeRepository);
+const readForgeNamespace = (values: StringRecord, key: string): string => readEnvironmentValue(values, key)
+  ?? readEnvironmentValue(values, 'FORGE_NAMESPACE')
+  ?? DEFAULT_FORGE_NAMESPACE;
+
+export const readForgeImageNamespace = (values: StringRecord): string => readForgeNamespace(
+  values,
+  'FORGE_IMAGE_NAMESPACE',
+);
+
+export const readForgeFragmentNamespace = (values: StringRecord): string => readForgeNamespace(
+  values,
+  'FORGE_FRAGMENT_NAMESPACE',
+);
 
 export const formatForgeImage = (
   role: ForgeImageRole,
   values: StringRecord,
-  forgeRepositoryOwner: string,
+  forgeImageNamespace: string,
 ): string => {
-  const name = readEnvironmentValue(values, role.nameKey) ?? role.defaultName;
+  const name = readEnvironmentValue(values, role.nameKey)
+    ?? readEnvironmentValue(values, FORGE_IMAGE_NAME_KEY)
+    ?? DEFAULT_FORGE_IMAGE_NAME;
 
-  return `${forgeRepositoryOwner}/${name}`;
+  return `${forgeImageNamespace}/${name}`;
 };
-
-export const readForgeImageSuffix = (
-  role: ForgeImageRole,
-  values: StringRecord,
-): string => (role.suffixKey === undefined
-  ? role.suffix
-  : (readEnvironmentValue(values, role.suffixKey) ?? role.suffix));
 
 /**
  * @throws {Error}
@@ -163,12 +200,11 @@ const createForgeImageReference = (
   role: ForgeImageRole,
 ): SplitReference => {
   const tag = requireSplitValue(values, 'FORGE_TAG', pin);
-  const suffix = readForgeImageSuffix(role, values);
-  const repository = formatForgeImage(role, values, splitDefaults.forgeRepositoryOwner);
+  const repository = formatForgeImage(role, values, splitDefaults.forgeImageNamespace);
 
   return {
-    reference: `${repository}:${tag}${suffix}@${pin.digest}`,
-    suffix,
+    reference: `${repository}:${tag}${role.suffix}@${pin.digest}`,
+    suffix: role.suffix,
     tagKey: 'FORGE_TAG',
   };
 };
@@ -188,12 +224,12 @@ const createImageReference = (pin: SplitPin, values: StringRecord, splitDefaults
     );
   }
 
-  const imageSuffix = readEnvironmentValue(values, `${pin.prefix}_IMAGE_SUFFIX`) ?? '';
+  const tagSuffix = readOwnValue(splitDefaults.tagSuffixes, pin.prefix) ?? '';
   const tag = requireSplitValue(values, `${pin.prefix}_TAG`, pin);
 
   return {
-    reference: `${repository}:${tag}${imageSuffix}@${pin.digest}`,
-    suffix: imageSuffix,
+    reference: `${repository}:${tag}${tagSuffix}@${pin.digest}`,
+    suffix: tagSuffix,
     tagKey: `${pin.prefix}_TAG`,
   };
 };

@@ -43,20 +43,16 @@ _[☄️ Bug Reports / Feature Requests »][issues-url]_
 
 ## 👋 About the Project
 
-**@brnshkr/forge** is a centralized collection of container images, Compose fragments, and reusable GitHub workflows
-used to build, test, release, and deploy all [@brnshkr][@brnshkr-organization-url] projects.
-It runs all projects in the same environment, locally and in CI.
-It pins tool versions in one place, prevents drift between repositories, and releases every project the same way.
+**@brnshkr/forge** is a set of pinned toolchain and runtime images, Compose fragments, and GitHub workflows
+for [@brnshkr][@brnshkr-organization-url] projects.
+One release pins every tool version. Your machine, CI, and your servers run the same binaries.
 
-What you get:
+Forge is not installed as a package.
+A project pins a release in `.env` and uses the published images, fragments, and workflows directly.
+The maintenance workflow bumps those pins.
 
-- toolchain images for PHP, Bun, or both, with an optional Chromium for browser tests
-- PHP-only, Bun-only, and combined PHP/Bun runtime images with hardened defaults
-- Compose fragments for your application, its workers, Postgres, Valkey, Mercure, Mailpit, and a proxy
-- workflows that check, scan, publish, and bump every repository, and deploy your image over SSH without downtime
-
-[`@brnshkr/config`][config-url] defines how code is written and checked,
-while this project provides the environment it is built, tested, and shipped in.
+It works best with [@brnshkr/config][config-url]. Its shared Makefile runs every tool inside the project's container.
+Everything also works without it, with plain `docker compose`.
 
 > ❗ **Note** ❗  
 > While you're more than welcome to use this in your own projects, the images and workflows are tailored specifically
@@ -67,111 +63,127 @@ while this project provides the environment it is built, tested, and shipped in.
 ## 📚 Documentation
 
 This README covers installation and usage.
-The [docs](./docs/index.md) cover the images, fragments, deploys, workflows, and the development setup in detail.
+The [docs](./docs/index.md) cover images, Compose fragments, deployment, and GitHub workflows,
+with a guide for each kind of project.
 
 <p align="right"><a href="#top" title="Back to top">&nbsp;&nbsp;&nbsp;⬆&nbsp;&nbsp;&nbsp;</a></p>
 
 ## 🧰 Prerequisites
 
 - Docker >= v29.4 with Compose >= v5.1 (older versions may work, but are untested)
-- GNU Make >= v4.3 (older versions may work, but are untested)
+- GNU Make >= v4.3, for the shared Makefile of [@brnshkr/config][config-url]
 
 <p align="right"><a href="#top" title="Back to top">&nbsp;&nbsp;&nbsp;⬆&nbsp;&nbsp;&nbsp;</a></p>
 
 ## 🚀 Installation
 
-This project is not installed as a package.
-Instead, you pin a release and use its published images, Compose fragments, and workflows directly.
-
 <!-- omit in toc -->
 ### Compose Fragments
 
-Include the fragments you need in your Compose file:
+Include a fragment in your Compose file and pin it in `.env`. The smallest working setup, for a library:
 
 ```yaml
 # ./conf/compose.yaml
 
 include:
-  - path: oci://${FORGE_REPOSITORY}/compose/cli:${CLI_FRAGMENT_TAG:-${FORGE_TAG:?}}@${CLI_FRAGMENT_DIGEST:?}
+  - path: oci://${FORGE_FRAGMENT_NAMESPACE:-${FORGE_NAMESPACE:?}}/forge-compose-cli:${FORGE_TAG:?}@${FORGE_CLI_FRAGMENT_DIGEST:?}
 ```
 
-Then pin the release in your `.env` file:
-
-```dotenv
+```ini
 # ./.env
 
 FORGE_TAG=<tag>
 FORGE_CLI_IMAGE_DIGEST=sha256:<digest> # <version>
-CLI_FRAGMENT_DIGEST=sha256:<digest> # <version>
+FORGE_CLI_FRAGMENT_DIGEST=sha256:<digest> # <version>
 ```
 
-[`@brnshkr/config`][config-url]'s Makefile reads this file and passes it to Compose for you.  
-Without that Makefile, pass the file, `FORGE_REPOSITORY`, `FORGE_REPOSITORY_OWNER`, and your user IDs yourself
-from your project's root (example call, adjust as needed):
+Read each digest once, e.g. with `docker buildx imagetools inspect docker.io/brnshkr/forge:<tag>-cli`.
+After that the maintenance workflow bumps it.
+
+Projects pull Forge's images and fragments from `docker.io/brnshkr`.
+Set `FORGE_NAMESPACE=ghcr.io/brnshkr` to pull them from GHCR instead.
+The shared Makefile of [@brnshkr/config][config-url] reads your `.env`
+and passes it to Compose, together with your user IDs.
+
+<!-- omit in toc -->
+#### Without the Shared Makefile
+
+Set the same variables yourself:
 
 ```sh
-FORGE_REPOSITORY=ghcr.io/brnshkr/forge FORGE_REPOSITORY_OWNER=ghcr.io/brnshkr HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose --env-file ./.env --file ./conf/compose.yaml run --rm cli php --version
+FORGE_NAMESPACE=docker.io/brnshkr HOST_UID=$(id -u) HOST_GID=$(id -g) \
+  docker compose --env-file ./.env --file ./conf/compose.yaml run --rm cli php --version
 ```
-
-All available fragments (e.g. Postgres, Valkey, or Mailpit) are listed in the [Compose docs](./docs/compose/index.md).
 
 <!-- omit in toc -->
 ### Workflows
 
-Your repository calls `ci.yaml` and `maintenance.yaml`, both shown with the secrets and settings they need
-in the [GitHub docs](./docs/github/index.md).
+Call `ci.yaml` and `maintenance.yaml` from your repository's own workflows.
+The [GitHub docs](./docs/github/setup.md) show both callers.
 
 <p align="right"><a href="#top" title="Back to top">&nbsp;&nbsp;&nbsp;⬆&nbsp;&nbsp;&nbsp;</a></p>
 
 ## 👀 Usage
 
-How you use this project depends on what you are building.
+The commands below are targets of the shared
+[🛠️ `make`](https://github.com/brnshkr/config/blob/master/docs/Makefile.md).
+Each guide shows the plain `docker compose` way as well.
 
 <!-- omit in toc -->
-### Libraries and Tools
+### 🧱 Libraries and Tools
 
-Include the `cli` fragment and the Makefile runs your tools inside it:
+Include the `cli` fragment as shown above. For browser tests, include `cli-chromium` instead.
 
 ```sh
-make ci     # fixes, checks, audits, and tests, the same way CI does
-make shell  # opens a shell where your tools run, `make <service>-shell` in any other service
-make help   # lists everything else you can run
+make ci
+make shell
+make help
 ```
 
-The [CLI docs](./docs/compose/cli.md) show how to pick `forge-php`, `forge-bun`, or a `-chromium` tag instead.
+`make ci` runs every check, `make shell` opens a shell in the container, and `make help` lists every target.
+See the [library guide](./docs/guides/library.md) for the full setup.
 
 <!-- omit in toc -->
-### Web Projects
+### 🐘 PHP Apps
 
-Include `web-dev` to develop on `forge-app`'s `-dev` image, or `web-bun-dev` for a Bun app;
-the [Compose docs](./docs/compose/index.md) show both:
+Include the `php-app-dev` and `php-worker-dev` fragments.
 
 ```sh
-make up     # starts your app and the other services you included
-make trust  # trusts the local certificate authority, once per project
+make up
+make trust
 ```
 
-The PHP app is served over HTTPS at the domain name you set. The Bun fragment serves HTTP and can use the proxy for HTTPS.
+`make up` starts the app and its worker. `make trust` makes your browsers trust the app's certificate.
+Then open the app on its `SERVER_NAME`, e.g. `https://acme-shop.internal`.
+The [PHP app guide](./docs/guides/php-app.md) has the full setup.
 
 <!-- omit in toc -->
-### Production Images
+### 🥟 Bun Apps
 
-Name your production image and pin its runtime base: `forge-app`, `forge-php-app`, or
-`forge-bun-app`. Build it on the matching `-dev` image. Choose `forge-app` for PHP and Bun,
-`forge-php-app` when the app needs no Bun, or `forge-bun-app` for Bun-only apps.
+Include the `bun-app-dev` and `bun-worker-dev` fragments.
 
-```dotenv
+```sh
+make up
+```
+
+With `APP_HTTP_PORT=3000`, the app answers on `http://127.0.0.1:3000`.
+The full setup is in the [Bun app guide](./docs/guides/bun-app.md).
+
+<!-- omit in toc -->
+### 📦 Production Images
+
+A stage file names the image your project ships:
+
+```ini
 # ./.env.production
 
 IMAGE_NAME=acme-shop
 IMAGE_TARGET=prod
-FORGE_RUNTIME_IMAGE_DIGEST=sha256:<digest> # <version>
+FORGE_APP_IMAGE_DIGEST=sha256:<digest> # <version>
 ```
 
-`publish.yaml` builds and scans it on every push and pushes it on each release, from your committed files only.
-Without a Dockerfile of your own, Forge's builds it, as the [Images docs](./docs/images/your-image.md)
-show along with what you can change; running it in production is shown in the [Compose docs](./docs/compose/production.md),
-and putting it on your servers in the [Deploy docs](./docs/deploy/index.md).
+Every push builds and scans it. Every release publishes it.
+Take a look at the [image docs](./docs/images/your-image.md) and the [deploy docs](./docs/deploy/index.md).
 
 <p align="right"><a href="#top" title="Back to top">&nbsp;&nbsp;&nbsp;⬆&nbsp;&nbsp;&nbsp;</a></p>
 

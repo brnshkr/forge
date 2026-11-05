@@ -1,129 +1,89 @@
 # 🏗️ Your image [🔍](../../docker/app/Dockerfile 'Go to source')
 
-Every `.env.<stage>` file that sets `IMAGE_NAME` is one image of your repository, built at `IMAGE_TARGET`
-from your tracked files only, so nothing your `.gitignore` lists ever reaches it.
+Build your project's own image from a stage file, with or without a Dockerfile of your own.
 
 ## Usage
 
-```dotenv
-# ./.env
+Every `.env.<stage>` file that sets `IMAGE_NAME` is one image:
 
-FORGE_TAG=<tag>
-FORGE_APP_IMAGE_SUFFIX=-dev
-FORGE_APP_IMAGE_DIGEST=sha256:<digest> # <version>
-```
-
-```dotenv
+```ini
 # ./.env.production
 
 IMAGE_NAME=acme-shop
 IMAGE_TARGET=prod
-FORGE_RUNTIME_IMAGE_DIGEST=sha256:<digest> # <version>
+FORGE_APP_IMAGE_DIGEST=sha256:<digest> # <version>
 EXTRA_PHP_EXTENSIONS=gd
 ```
 
-By default, it builds on `forge-app:<tag>-dev` and runs on `forge-app:<tag>`, pinned by
-`FORGE_RUNTIME_IMAGE_DIGEST`. Keep `forge-app` for PHP and Bun, set `FORGE_APP_IMAGE_NAME=forge-php-app` when the
-app needs no Bun, or choose `forge-bun-app` for a Bun-only project. A project using a different build toolchain pins
-it with `FORGE_BUILD_IMAGE_DIGEST`.
+```ini
+# ./.env
 
-Without `./conf/docker/<IMAGE_NAME>.Dockerfile` or `./docker/<IMAGE_NAME>.Dockerfile`, Forge's own Dockerfile
-builds it: it installs your Composer and Bun dependencies on `FORGE_BUILD_IMAGE`, runs `make dist` where your
-Makefile has it, keeps only production dependencies, runs `composer dump-env prod` for Symfony, and copies the result
-onto `FORGE_RUNTIME_IMAGE`, owned by `forge` and run by its unprivileged runtime user.
-A deploy refuses a `-dev` `FORGE_RUNTIME_IMAGE`; development images are not production runtimes.
+FORGE_TAG=<tag>
+FORGE_APP_DEV_IMAGE_DIGEST=sha256:<digest> # <version>
+```
 
-The image holds what your package archive ships, the paths your `.gitattributes` does not `export-ignore`,
-plus your dependencies and whatever the build generated, so tests, docs, and tool configs never reach it.
-`@brnshkr/config` writes that `.gitattributes` from your `composer.json`; an application lists what it runs from:
+Every push builds, verifies, and scans it. Every release publishes it to `ghcr.io/<owner>/acme-shop` by default.
+[Publishing](../github/publishing.md) covers another registry and a mirror such as Docker Hub.
+It is built at `IMAGE_TARGET` from tracked files only.
+
+Without a Dockerfile of your own, Forge's Dockerfile builds it in two stages:
+
+1. On `FORGE_APP_DEV_IMAGE`: installs the Composer and Bun dependencies, runs `make dist` where your Makefile has it,
+   keeps production dependencies only, and runs `composer dump-env prod` for Symfony.
+2. On `FORGE_APP_IMAGE`: copies the result, owned by `forge`, and runs it as `www-data`.
+
+The image holds what your package archive ships: every path `.gitattributes` does not `export-ignore`,
+plus the dependencies and the build output. Config writes that `.gitattributes` from your `composer.json`.
+List the paths your app needs at runtime, then run `make configs`:
 
 ```makefile
 # ./Makefile
 
-ARCHIVE_EXTRA_PATHS = bin/console \
-  config/ \
-  public/ \
-  templates/ \
-  migrations/ \
-  .env
+ARCHIVE_EXTRA_PATHS = bin/console config/ public/ templates/ migrations/ .env
 ```
 
-Without a `.gitattributes` that leaves anything out, every tracked file ships.
-The image's labels come from your repository and your manifest.
+Without such a `.gitattributes`, every tracked file ships.
+`var/` must ship empty. Its volume copies files only once, so the build fails on a file there.
+
+### Dockerfile of your own
+
+Forge picks `IMAGE_DOCKERFILE`, else `./conf/docker/<IMAGE_NAME>.Dockerfile`, else `./docker/<IMAGE_NAME>.Dockerfile`.
+Start from Forge's own and change it:
+
+```sh
+docker run --rm --entrypoint cat docker.io/brnshkr/forge:<tag>-app-dev@sha256:<digest> \
+  /usr/local/share/forge/app.Dockerfile >./docker/acme-shop.Dockerfile
+```
+
+It declares `ARG FORGE_APP_DEV_IMAGE` and `ARG FORGE_APP_IMAGE`,
+builds on `FROM ${FORGE_APP_DEV_IMAGE}`, and ends on `FROM ${FORGE_APP_IMAGE}`.
+Every `FORGE_<ROLE>_IMAGE` argument resolves from its digest.
+Every other `ARG` takes its value from the stage's env files. One without a default that nothing sets fails the build.
+The context is the tracked files plus `.forge-export-ignored`.
+The hadolint rules of [@brnshkr/config](https://github.com/brnshkr/config) require the OCI labels.
+
+A `verify.sh` beside the Dockerfile runs before each push.
+It gets the image reference, the image name, and the target as arguments.
 
 ## Customizing
 
-| Variable | Effect |
-| --- | --- |
-| `FORGE_BUILD_IMAGE`, `FORGE_RUNTIME_IMAGE` | replaces the image it builds or runs on, as a full pinned reference |
-| `EXTRA_APT_PACKAGES`, `EXTRA_PHP_EXTENSIONS` | adds packages and PHP extensions |
-| `IMAGE_INCLUDE` | ships these paths although the archive leaves them out |
-| `IMAGE_EXCLUDE` | leaves these paths out although the archive ships them |
-| `FORGE_VAR_DIR`, `FORGE_CACHE_DIR` | the directories it prepares for `www-data` ([Production](../compose/production.md)) |
-| `IMAGE_SUFFIX`, `IMAGE_ALIASES` | appended to each tag, and more tags ([Releases docs](../releases.md#tags)) |
+| Variable | Falls back to | Changes |
+| --- | --- | --- |
+| `IMAGE_NAME` | — | names the image |
+| `IMAGE_TARGET` | — | which Dockerfile stage is built |
+| `IMAGE_DOCKERFILE` | — | a Dockerfile anywhere in the repository |
+| `IMAGE_DESCRIPTION` | — | the image's description |
+| `IMAGE_ALIASES` | — | more tags |
+| `IMAGE_SUFFIX` | — | appended to every tag |
+| `IMAGE_INCLUDE` | — | paths to ship that the archive leaves out |
+| `IMAGE_EXCLUDE` | — | paths to leave out that the archive ships |
+| `EXTRA_APT_PACKAGES` | — | Debian packages to add |
+| `EXTRA_PHP_EXTENSIONS` | — | PHP extensions to add |
+| `FORGE_VAR_DIR` | — | where the app writes |
+| `FORGE_CACHE_DIR` | — | where the app caches |
+| `FORGE_APP_DEV_IMAGE` | from `FORGE_TAG` and its digest | the build image, as a full pinned reference |
+| `FORGE_APP_IMAGE` | from `FORGE_TAG` and its digest | the runtime image, as a full pinned reference |
 
-`var/` has to be empty in the image: its volume copies the image's files only once, so the build fails on a file there.
+The defaults are in [`Dockerfile`](../../docker/app/Dockerfile).
 
-### Building it yourself
-
-`./conf/docker/<IMAGE_NAME>.Dockerfile` takes over from Forge's:
-
-```dockerfile
-# ./conf/docker/acme-shop.Dockerfile
-
-ARG FORGE_BUILD_IMAGE
-ARG FORGE_RUNTIME_IMAGE
-
-FROM ${FORGE_BUILD_IMAGE} AS build
-
-WORKDIR /app
-
-USER 0:0
-
-RUN chown "${FORGE_CODE_OWNER}" /app
-
-USER ${FORGE_CODE_OWNER}
-
-COPY --chown=${FORGE_CODE_OWNER} . .
-
-RUN composer install --no-dev --classmap-authoritative --no-interaction
-
-FROM ${FORGE_RUNTIME_IMAGE} AS prod
-
-LABEL \
-  org.opencontainers.image.source="https://github.com/<owner>/acme-shop" \
-  org.opencontainers.image.description="Online shop of Acme" \
-  org.opencontainers.image.licenses="MIT" \
-  org.opencontainers.image.title="acme-shop" \
-  org.opencontainers.image.url="https://github.com/<owner>/acme-shop" \
-  org.opencontainers.image.documentation="https://github.com/<owner>/acme-shop#readme" \
-  org.opencontainers.image.vendor="acme" \
-  org.opencontainers.image.authors="Acme"
-
-WORKDIR /app
-
-COPY --from=build --chown=${FORGE_CODE_OWNER} /app ./
-
-USER 0:0
-
-RUN <<'EOF'
-  find . -type d -perm -0002 -exec chmod o-w,-t {} +
-
-  install \
-    -d \
-    -o "${RUNTIME_USER_UID}" \
-    -g "${RUNTIME_USER_GID}" \
-    -m 0700 \
-    "${FORGE_VAR_DIR}" \
-    "${FORGE_CACHE_DIR}"
-EOF
-
-USER ${FORGE_RUNTIME_USER}
-```
-
-Every `ARG` takes its stage's value, and one without a default that nothing sets fails the build.
-The context holds your tracked files and `.forge-export-ignored`, the paths your archive leaves out.
-`@brnshkr/config`'s hadolint config requires the labels.
-
-A `verify.sh` beside the Dockerfile runs before each push with the image, its name, and its target.
-When and where the images are pushed is described in the [Releases docs](../releases.md).
+Another `FORGE_VAR_DIR` or `FORGE_CACHE_DIR` must exist in the image, owned by the runtime user.

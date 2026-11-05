@@ -1,22 +1,19 @@
 services:
   actionlint:
-    image: ${ACTIONLINT_IMAGE:-${ACTIONLINT_REPOSITORY:-rhysd/actionlint}:${ACTIONLINT_TAG:?Set `ACTIONLINT_TAG` and `ACTIONLINT_IMAGE_DIGEST`, or `ACTIONLINT_IMAGE`.}@${ACTIONLINT_IMAGE_DIGEST:?Set `ACTIONLINT_TAG` and `ACTIONLINT_IMAGE_DIGEST`, or `ACTIONLINT_IMAGE`.}}
+    extends:
+      file: ./base.yaml
+      service: base
+    image: "${ACTIONLINT_IMAGE:-\
+      ${ACTIONLINT_REPOSITORY:-rhysd/actionlint}\
+      :${ACTIONLINT_TAG:?Set `ACTIONLINT_TAG` and `ACTIONLINT_IMAGE_DIGEST`, or `ACTIONLINT_IMAGE`.}\
+      @${ACTIONLINT_IMAGE_DIGEST:?Set `ACTIONLINT_TAG` and `ACTIONLINT_IMAGE_DIGEST`, or `ACTIONLINT_IMAGE`.}}"
     entrypoint: []
     profiles:
       - actionlint
     working_dir: /app
     user: ${HOST_UID:-1000}:${HOST_GID:-1000}
-    restart: unless-stopped
-    logging:
-      driver: local
-    init: true
-    read_only: true
     mem_limit: ${ACTIONLINT_CONTAINER_MEMORY_LIMIT:-256m}
     pids_limit: ${ACTIONLINT_CONTAINER_PIDS_LIMIT:-256}
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
     environment:
       HOME: /tmp
     tmpfs:

@@ -72,11 +72,11 @@ const IMAGE = `${GHCR}/acme/acme-shop@${DIGEST}`;
 const OLD_IMAGE = `${GHCR}/acme/acme-shop@${createDigest('3')}`;
 const UNIQUE_IMAGE = `${GHCR}/acme/acme-shop@${createDigest('7')}`;
 const POSTGRES_IMAGE = `postgres:1@${createDigest('2')}`;
-const PROXY_IMAGE = `${GHCR}/brnshkr/forge-app:1.0.0@${createDigest('4')}`;
-const RUNNING_PROXY_IMAGE = `${GHCR}/brnshkr/forge-app:0.9.0@${createDigest('8')}`;
+const PROXY_IMAGE = `${GHCR}/acme/forge-php:1.0.0-app@${createDigest('4')}`;
+const RUNNING_PROXY_IMAGE = `${GHCR}/acme/forge-php:0.9.0-app@${createDigest('8')}`;
 const MAILPIT_IMAGE = `axllent/mailpit:1@${createDigest('6')}`;
 const VALKEY_IMAGE = `valkey/valkey:1@${createDigest('5')}`;
-const DEV_RUNTIME_IMAGE = `${GHCR}/brnshkr/forge-app:1.0.0-dev@${createDigest('9')}`;
+const DEV_RUNTIME_IMAGE = `${GHCR}/acme/forge:1.0.0-app-dev@${createDigest('9')}`;
 const POLL_MILLISECONDS = 50;
 const TERMINATED_EXIT_CODE = 143;
 const SSH_FAILURE_EXIT_CODE = 255;
@@ -88,7 +88,7 @@ const createReleaseNamePattern = (): RegExp => /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\
 
 const PORTS_TEMPLATE = `name: acme-shop-production
 services:
-  app:
+  php-app:
     image: @IMAGE@
     environment:
       APP_ENV: @APP_ENV@
@@ -101,7 +101,7 @@ services:
       - command: @WARMUP@
     ports:
       - target: 80
-  messenger:
+  php-worker:
     image: @IMAGE@
   postgres:
     container_name: @PROJECT@-postgres
@@ -334,15 +334,15 @@ const DOCKER_STUB = String.raw`case " $* " in
     printf '%s\n' "$STUB_DIGEST"
   ;;
 
-  *" ps --quiet app ")
+  *" ps --quiet php-app ")
     printf '%s\n' $STUB_OLD_CONTAINERS
   ;;
 
-  *" ps --all --quiet app ")
+  *" ps --all --quiet php-app ")
     printf '%s\n' $STUB_OLD_CONTAINERS new-1
   ;;
 
-  *" up --detach --no-deps"*" app ")
+  *" up --detach --no-deps"*" php-app ")
     case $PWD in
       *"$STUB_FAILING_RELEASE" | *"/$STUB_FAILING_HOST/srv/"*)
         exit 1
@@ -592,7 +592,7 @@ describe('a deploy', () => {
       'one: doctrine:database:create default',
       'one: doctrine:migrations:migrate default',
       'one: after-migrate.sh',
-      'one: start app',
+      'one: start php-app',
       `one: switch to ${release}`,
       'one: start the rest',
       'one: after-switch.sh',
@@ -611,7 +611,7 @@ describe('a deploy', () => {
     await expect(readDockerCalls(deployment))
       .resolves
       .toContain('docker compose --file compose.yaml run --rm --no-deps --no-TTY --env FORGE_ONE_OFF=1 '
-        + `--volume ${hookPath}:/run/forge/after-migrate.sh:ro app sh /run/forge/after-migrate.sh`);
+        + `--volume ${hookPath}:/run/forge/after-migrate.sh:ro php-app sh /run/forge/after-migrate.sh`);
   });
 
   it('takes the recipes and Doctrine names a target sets, and no machine settings', async () => {
@@ -631,7 +631,7 @@ describe('a deploy', () => {
       'one: doctrine:database:create default',
       'one: doctrine:database:create customer_db',
       'one: doctrine:migrations:migrate customer',
-      'one: start app',
+      'one: start php-app',
     ].join('\n'));
 
     expect(deployRun.standardOutput).not.toContain('local.example');
@@ -710,7 +710,7 @@ describe('a deploy', () => {
     },
     {
       message: '`scheduler` mounts `/home/acme/acme-shop` over `/app`, which only development does; '
-        + 'include `web` and `messenger` instead.\n',
+        + 'include the fragments without `-dev` instead.\n',
       files: {
         '.rendered.yaml': `${PORTS_TEMPLATE}  scheduler:\n    image: @IMAGE@\n    volumes:\n      - type: bind\n`
           + '        source: /home/acme/acme-shop\n        target: /app\n        bind: {}\n',
@@ -720,10 +720,10 @@ describe('a deploy', () => {
       },
     },
     {
-      message: '`FORGE_RUNTIME_IMAGE` is a `-dev` image, which ships development tools; '
-        + 'use the matching production runtime image instead.\n',
+      message: '`FORGE_APP_IMAGE` is an `-app-dev` image, which ships development tools; '
+        + 'use the matching `-app` image instead.\n',
       files: {
-        '.env.production': `${PROJECT_FILES['.env.production']}FORGE_RUNTIME_IMAGE=${DEV_RUNTIME_IMAGE}\n`,
+        '.env.production': `${PROJECT_FILES['.env.production']}FORGE_APP_IMAGE=${DEV_RUNTIME_IMAGE}\n`,
       },
       values: {
         VERSION: '1.0.0',
@@ -1005,8 +1005,8 @@ describe('a deploy', () => {
     const failedRelease = await readNewestRelease(deployment);
 
     expect(deployRun.exitCode).toBe(1);
-    expect(deployRun.standardError).toBe(`\`app\` of \`${failedRelease}\` did not become healthy on \`one\`.\n`);
-    expect(deployRun.standardOutput).toContain('one: restore app of 1970-01-01T00-00-00Z_0.9.0\none: unlock\n');
+    expect(deployRun.standardError).toBe(`\`php-app\` of \`${failedRelease}\` did not become healthy on \`one\`.\n`);
+    expect(deployRun.standardOutput).toContain('one: restore php-app of 1970-01-01T00-00-00Z_0.9.0\none: unlock\n');
     await expect(readCurrent(deployment)).resolves.toBe('1970-01-01T00-00-00Z_0.9.0');
 
     await expect(file(deployment.getServerPath(
@@ -1151,7 +1151,7 @@ describe('a restart', () => {
 
     await expect(readDockerCalls(deployment)).resolves.toStrictEqual([
       'docker compose --file compose.yaml up --detach --no-deps --wait --wait-timeout 300 '
-      + '--force-recreate app messenger',
+      + '--force-recreate php-app php-worker',
     ]);
   });
 
@@ -1223,8 +1223,8 @@ describe('a deploy behind the proxy', () => {
 
     const dockerCalls = await readDockerCalls(deployment);
 
-    expect(deployRun.standardOutput).toContain('one: stop app of 1970-01-01T00-00-00Z_0.9.0 for the proxy\n');
-    expect(dockerCalls).toContain('docker compose --file compose.yaml rm --stop --force app');
+    expect(deployRun.standardOutput).toContain('one: stop php-app of 1970-01-01T00-00-00Z_0.9.0 for the proxy\n');
+    expect(dockerCalls).toContain('docker compose --file compose.yaml rm --stop --force php-app');
 
     await expect(file(path.join(deployment.capture, 'shared-override.yaml')).text())
       .resolves
@@ -1309,7 +1309,7 @@ describe('several hosts', () => {
     const dockerCalls = await readDockerCalls(deployment);
 
     expect(deployRun.exitCode).toBe(1);
-    expect(deployRun.standardOutput).toContain(`one: remove app of ${release}\n`);
+    expect(deployRun.standardOutput).toContain(`one: remove php-app of ${release}\n`);
 
     expect(dockerCalls.filter((call) => call === 'docker rm --force new-1')).toStrictEqual([
       'docker rm --force new-1',
@@ -1352,10 +1352,10 @@ describe('several hosts', () => {
 
     expect(deployRun.standardOutput).toContain([
       `one: switch back from ${release}`,
-      `one: remove app of ${release}`,
-      'one: restore app of 1970-01-01T00-00-00Z_0.9.0',
+      `one: remove php-app of ${release}`,
+      'one: restore php-app of 1970-01-01T00-00-00Z_0.9.0',
       `two: switch back from ${release}`,
-      `two: remove app of ${release}`,
+      `two: remove php-app of ${release}`,
       '',
     ].join('\n'));
 
@@ -1397,7 +1397,7 @@ describe('the backups', () => {
 
     expect(restoreRun.standardOutput).toContain(`one: restore postgres from ${release}\n`);
 
-    const stopIndex = dockerCalls.indexOf('docker compose --file compose.yaml stop app messenger');
+    const stopIndex = dockerCalls.indexOf('docker compose --file compose.yaml stop php-app php-worker');
 
     expect(stopIndex).toBeGreaterThan(-1);
     expect(dockerCalls[stopIndex + 1]).toContain('exec -T postgres sh -c pg_restore');
@@ -1414,7 +1414,7 @@ describe('the backups', () => {
 
     expect(deployRun.exitCode).toBe(1);
     expect(deployRun.standardOutput).toContain('one: back up postgres\n');
-    expect(deployRun.standardOutput).not.toContain('one: start app\n');
+    expect(deployRun.standardOutput).not.toContain('one: start php-app\n');
   });
 
   it('cover the target\'s own databases on a shared Postgres, and only those', async () => {
@@ -1642,7 +1642,7 @@ describe('a move that fails', () => {
 
     expect(deployRun.exitCode).toBe(1);
     expect(deployRun.standardError).toBe(scenario.message);
-    expect(deployRun.standardOutput).not.toContain('one: start app\n');
+    expect(deployRun.standardOutput).not.toContain('one: start php-app\n');
   });
 });
 
@@ -1962,9 +1962,9 @@ describe('a failed switch to the proxy', () => {
     const dockerCalls = await readDockerCalls(deployment);
 
     expect(deployRun.exitCode).toBe(1);
-    expect(deployRun.standardOutput).toContain('one: restore app of 1970-01-01T00-00-00Z_0.9.0 on its ports\n');
+    expect(deployRun.standardOutput).toContain('one: restore php-app of 1970-01-01T00-00-00Z_0.9.0 on its ports\n');
     expect(dockerCalls).toContain('docker compose --file compose.yaml down');
-    expect(dockerCalls.at(-1)).toBe('docker compose --file compose.yaml up --detach --no-deps app');
+    expect(dockerCalls.at(-1)).toBe('docker compose --file compose.yaml up --detach --no-deps php-app');
   });
 });
 
@@ -2293,7 +2293,7 @@ describe('the hooks', () => {
       'one: back up postgres',
       'one: before-migrate.sh',
       'one: after-migrate.sh',
-      'one: start app',
+      'one: start php-app',
       'one: before-switch.sh',
       `one: switch to ${release}`,
       'one: start the rest',
@@ -2353,7 +2353,7 @@ describe('the hooks', () => {
 
     expect(deployRun.standardOutput).toContain([
       `one: switch back from ${release}`,
-      'one: restore app of 1970-01-01T00-00-00Z_0.9.0',
+      'one: restore php-app of 1970-01-01T00-00-00Z_0.9.0',
       'one: restore the rest of 1970-01-01T00-00-00Z_0.9.0',
       '',
     ].join('\n'));
@@ -2420,7 +2420,7 @@ describe('the hooks', () => {
     });
 
     expect(deployRun.exitCode).toBe(1);
-    expect(deployRun.standardOutput).toContain('one: restore app of 1970-01-01T00-00-00Z_0.9.0\n');
+    expect(deployRun.standardOutput).toContain('one: restore php-app of 1970-01-01T00-00-00Z_0.9.0\n');
 
     await expect(readCurrent(deployment)).resolves.toBe('1970-01-01T00-00-00Z_0.9.0');
     await expect(doesPathExist(deployment.getServerPath('two', 'acme-shop/current'))).resolves.toBe(false);

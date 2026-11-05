@@ -1,7 +1,6 @@
 # 📬 Mailpit [🔍](../../compose/mailpit.yaml 'Go to source')
 
-`forge/compose/mailpit` runs Mailpit, which catches every mail your application sends and shows it in a web interface.
-It never runs in production: a production release that includes it fails to deploy.
+`mailpit` catches every mail your app sends and shows it in a web interface.
 
 ## Usage
 
@@ -9,38 +8,36 @@ It never runs in production: a production release that includes it fails to depl
 # ./conf/compose.yaml
 
 include:
-  - path: oci://${FORGE_REPOSITORY}/compose/mailpit:${MAILPIT_FRAGMENT_TAG:-${FORGE_TAG:?}}@${MAILPIT_FRAGMENT_DIGEST:?}
+  - path: oci://${FORGE_FRAGMENT_NAMESPACE:-${FORGE_NAMESPACE:?}}/forge-compose-mailpit:${FORGE_TAG:?}@${FORGE_MAILPIT_FRAGMENT_DIGEST:?}
 ```
 
-```dotenv
+```ini
 # ./.env
 
+COMPOSE_PROJECT_NAME=acme-shop
 MAILPIT_MAX_MESSAGES=500
 MAILPIT_SMTP_PORT=1025
 MAILPIT_WEB_PORT=8025
-MAILER_DSN=smtp://mailpit:${MAILPIT_SMTP_PORT}
+MAILER_DSN=smtp://mailpit:1025
+
+MAILPIT_TAG=<tag>
+MAILPIT_IMAGE_DIGEST=sha256:<digest> # <version>
+FORGE_MAILPIT_FRAGMENT_DIGEST=sha256:<digest> # <version>
 ```
 
-The web interface listens on `127.0.0.1:<MAILPIT_WEB_PORT>`, and `MAILPIT_HOST_IP` opens it to your network.
+Your app sends to the host `mailpit` on `MAILPIT_SMTP_PORT`. Any login is accepted, without TLS.
+The web interface answers on `http://127.0.0.1:8025`. Mailpit keeps at most `MAILPIT_MAX_MESSAGES` mails.
+
+A deploy refuses `mailpit` in production. On another target it can run once per server for every project there.
+Its logins then live in `shared/.env.mailpit.local`. Take a look at [shared services](../deploy/shared.md).
 
 ## Customizing
 
-Testing and staging may catch mail too, or send through a real `MAILER_DSN` instead.
-On a server, the proxy shows the mails at `MAILPIT_SERVER_NAME`,
-behind the login in `shared/.env.mailpit.local` (`MP_UI_AUTH` or `MP_UI_AUTH_FILE`), which only Mailpit reads;
-a deploy refuses the name without one:
+| Variable | Changes |
+| --- | --- |
+| `MAILPIT_HOST_IP` | where the web interface listens |
+| `MAILPIT_REPOSITORY` | where the image comes from |
+| `MAILPIT_CONTAINER_MEMORY_LIMIT` | how much memory the service may use |
+| `MAILPIT_CONTAINER_PIDS_LIMIT` | how many processes the service may start |
 
-```dotenv
-# ./.env.staging
-
-MAILPIT_SERVER_NAME=mail.staging.acme-shop.example.com
-```
-
-```sh
-ssh deploy@203.0.113.20 'printf "MP_UI_AUTH=alice:<password>\n" >>/srv/acme-shop/shared/.env.mailpit.local'
-```
-
-Everyone who logs in sees every mail, so an audience of its own takes a Mailpit of its own.
-A project's own Mailpit accepts any SMTP login, since only its own network reaches it.
-A Mailpit shared in `forge-shared` only accepts the SMTP logins in `/srv/forge-shared/mailpit.passwd`,
-Mailpit's password file, since every project on the server could reach it.
+The defaults are in [`mailpit.yaml`](../../compose/mailpit.yaml).

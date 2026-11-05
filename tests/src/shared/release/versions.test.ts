@@ -408,11 +408,12 @@ describe('the tags a release takes', () => {
 });
 
 describe('the fragments of a release', () => {
-  it('are those of the config directory and the root', async () => {
+  it('are those of the config directory and the root that run an image, not a base they extend', async () => {
     const directory = await createRepository({
-      'compose/user.yaml': '',
-      'compose/user.yml': '',
-      'conf/compose/email.yaml': '',
+      'compose/base.yaml': 'services:\n  base:\n    read_only: true\n',
+      'compose/user.yaml': 'services:\n  user:\n    image: acme/user\n',
+      'compose/user.yml': 'services:\n  user:\n    image: acme/user\n',
+      'conf/compose/email.yaml': 'services:\n  email:\n    image: acme/email\n',
     });
 
     await expect(readFragmentFiles(directory)).resolves.toStrictEqual([

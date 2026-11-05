@@ -1,0 +1,11 @@
+services:
+  base:
+    restart: unless-stopped
+    logging:
+      driver: local
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true

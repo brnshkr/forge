@@ -1,21 +1,18 @@
 services:
   hadolint:
-    image: ${HADOLINT_IMAGE:-${HADOLINT_REPOSITORY:-hadolint/hadolint}:${HADOLINT_TAG:?Set `HADOLINT_TAG` and `HADOLINT_IMAGE_DIGEST`, or `HADOLINT_IMAGE`.}@${HADOLINT_IMAGE_DIGEST:?Set `HADOLINT_TAG` and `HADOLINT_IMAGE_DIGEST`, or `HADOLINT_IMAGE`.}}
+    extends:
+      file: ./base.yaml
+      service: base
+    image: "${HADOLINT_IMAGE:-\
+      ${HADOLINT_REPOSITORY:-hadolint/hadolint}\
+      :${HADOLINT_TAG:?Set `HADOLINT_TAG` and `HADOLINT_IMAGE_DIGEST`, or `HADOLINT_IMAGE`.}\
+      @${HADOLINT_IMAGE_DIGEST:?Set `HADOLINT_TAG` and `HADOLINT_IMAGE_DIGEST`, or `HADOLINT_IMAGE`.}}"
     profiles:
       - hadolint
     working_dir: /app
     user: ${HOST_UID:-1000}:${HOST_GID:-1000}
-    restart: unless-stopped
-    logging:
-      driver: local
-    init: true
-    read_only: true
     mem_limit: ${HADOLINT_CONTAINER_MEMORY_LIMIT:-256m}
     pids_limit: ${HADOLINT_CONTAINER_PIDS_LIMIT:-256}
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
     environment:
       HOME: /tmp
     tmpfs:

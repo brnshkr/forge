@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1
 # check=skip=InvalidDefaultArgInFrom;error=true
 
-ARG FORGE_BUILD_IMAGE
-ARG FORGE_RUNTIME_IMAGE
+ARG FORGE_APP_DEV_IMAGE
+ARG FORGE_APP_IMAGE
 
 ARG USER_UID=1000
 ARG USER_GID=1000
@@ -10,7 +10,7 @@ ARG RUNTIME_USER_UID=33
 ARG RUNTIME_USER_GID=33
 ARG FORGE_VAR_DIR=/app/var
 
-FROM ${FORGE_BUILD_IMAGE} AS build
+FROM ${FORGE_APP_DEV_IMAGE} AS build
 
 SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 
@@ -109,7 +109,7 @@ EOF
 
 # NOTICE: The labels come from the project's manifests and repository, added by `publish.yaml`
 # hadolint ignore=DL3049
-FROM ${FORGE_RUNTIME_IMAGE} AS prod
+FROM ${FORGE_APP_IMAGE} AS prod
 
 SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 

@@ -1,59 +1,66 @@
-# Bun app [🔍](../../compose/web-bun.yaml 'Go to source')
+# 🥟 Bun app [🔍](../../compose/bun-app.yaml 'Go to source')
 
-The Bun fragments run your app on port `80` as an unprivileged user.
-The app must read `HOST` and `PORT`, or configure its server to listen on
-`0.0.0.0:80`. The health check requests `/` and accepts any response below `500`.
+`bun-app-dev` runs your Bun server from your working copy. `bun-app` runs it from your own image on a server.
 
-## Development
-
-Include `forge/compose/web-bun-dev` while developing from your working copy:
+## Usage
 
 ```yaml
 # ./conf/compose.yaml
 
 include:
-  - path: oci://${FORGE_REPOSITORY}/compose/web-bun-dev:${WEB_BUN_DEV_FRAGMENT_TAG:-${FORGE_TAG:?}}@${WEB_BUN_DEV_FRAGMENT_DIGEST:?}
+  - path: oci://${FORGE_FRAGMENT_NAMESPACE:-${FORGE_NAMESPACE:?}}/forge-compose-bun-app-dev:${FORGE_TAG:?}@${FORGE_BUN_APP_DEV_FRAGMENT_DIGEST:?}
 ```
 
-```dotenv
+```ini
 # ./.env
 
-FORGE_TAG=<tag>
-FORGE_APP_IMAGE_NAME=forge-bun-app
-FORGE_APP_IMAGE_SUFFIX=-dev
-FORGE_APP_IMAGE_DIGEST=sha256:<digest> # <version>
-WEB_BUN_DEV_FRAGMENT_DIGEST=sha256:<digest> # <version>
-
 APP_HTTP_PORT=3000
+
+FORGE_TAG=<tag>
+FORGE_IMAGE_NAME=forge-bun
+FORGE_APP_DEV_IMAGE_DIGEST=sha256:<digest> # <version>
+FORGE_BUN_APP_DEV_FRAGMENT_DIGEST=sha256:<digest> # <version>
 ```
 
-The default command is `bun --watch run start`. Override `FORGE_COMMAND` for
-another script. This fragment serves HTTP only; include a proxy fragment if you
-need HTTPS locally.
+Both run the service `bun-app` with your `package.json` script `start`. They set `HOST=0.0.0.0` and `PORT=80`.
+Your server listens there. The health check asks for `GET /` and accepts any status below 500.
+The app answers plain HTTP on `http://127.0.0.1:3000`.
 
-`FORGE_INSPECT=1` starts it with Bun's debugger, which your editor attaches to at `ws://127.0.0.1:6499/`
-(`APP_HOST_IP` and `APP_INSPECT_PORT`), mapping `/app` to your working copy.
+## Development
+
+`bun-app-dev` runs `bun --watch run start` with `NODE_ENV=development`.
+It mounts your working copy read-write at `/app` and runs as `HOST_UID` and `HOST_GID`.
+Its home `/home/forge` lives in the volume `forge-home`. `host.docker.internal` reaches your machine.
+
+To debug, turn on the inspector:
+
+```ini
+# ./.env.local
+
+FORGE_INSPECT=1
+```
+
+The server then starts with `--inspect=0.0.0.0:6499/`. Attach to `ws://127.0.0.1:6499/` and map `/app`
+to your working copy. To reach it from another device, see [`php-app`](./php-app.md#other-devices).
 
 ## Production
 
-Include `forge/compose/web-bun` with your own pinned application image:
+`bun-app` runs `bun run start` with `NODE_ENV=production`, read-only, with nothing mounted, as `www-data`.
+It keeps the same paths and reads the same files on the server as [`php-app`](./php-app.md#production).
+The [proxy](../deploy/zero-downtime.md) terminates HTTPS and routes to it.
 
-```yaml
-# ./conf/compose.prod.yaml
+## Customizing
 
-include:
-  - path: oci://${FORGE_REPOSITORY}/compose/web-bun:${WEB_BUN_FRAGMENT_TAG:-${FORGE_TAG:?}}@${WEB_BUN_FRAGMENT_DIGEST:?}
-```
+| Variable | Falls back to | Changes |
+| --- | --- | --- |
+| `BUN_APP_COMMAND` | — | what the service runs |
+| `BUN_APP_HTTP_PORT` | `APP_HTTP_PORT` | which port on your machine serves HTTP |
+| `BUN_APP_INSPECT_PORT` | `APP_INSPECT_PORT` | which port on your machine the debugger listens on |
+| `APP_HOST_IP` | — | where the ports listen |
+| `BUN_APP_CONTAINER_MEMORY_LIMIT` | — | how much memory the service may use |
+| `BUN_APP_DEV_CONTAINER_MEMORY_LIMIT` | `BUN_APP_CONTAINER_MEMORY_LIMIT` | how much memory `bun-app-dev` may use |
+| `BUN_APP_CONTAINER_PIDS_LIMIT` | — | how many processes the service may start |
+| `BUN_APP_DEV_CONTAINER_PIDS_LIMIT` | `BUN_APP_CONTAINER_PIDS_LIMIT` | how many processes `bun-app-dev` may start |
 
-```dotenv
-# ./.env.production
-
-FORGE_APP_IMAGE=ghcr.io/acme/acme-shop:<tag>@sha256:<digest>
-WEB_BUN_FRAGMENT_DIGEST=sha256:<digest> # <version>
-APP_HTTP_PORT=3000
-```
-
-The default command is `bun run start`. The fragment exposes HTTP on loopback by
-default; a Forge proxy can route traffic to `app:80` and terminate HTTPS.
-Deployments use the same `app` service and `shared/.env.*.local` files as the
-PHP web fragments.
+The defaults are in [`bun-app.yaml`](../../compose/bun-app.yaml)
+and [`bun-app-dev.yaml`](../../compose/bun-app-dev.yaml).

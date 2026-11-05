@@ -1,49 +1,41 @@
 # 📡 Mercure [🔍](../../compose/mercure.yaml 'Go to source')
 
-`forge/compose/mercure` runs a Mercure hub of its own, so every copy of your application publishes to the same one.
-Its history lives in the volume `forge-mercure-data`.
+`mercure` runs a Mercure hub of its own, beside your app.
 
 ## Usage
-
-Your application forwards `/.well-known/mercure` to the hub, so browsers subscribe at your own domain:
 
 ```yaml
 # ./conf/compose.prod.yaml
 
 include:
-  - path: oci://${FORGE_REPOSITORY}/compose/mercure:${MERCURE_FRAGMENT_TAG:-${FORGE_TAG:?}}@${MERCURE_FRAGMENT_DIGEST:?}
+  - path: oci://${FORGE_FRAGMENT_NAMESPACE:-${FORGE_NAMESPACE:?}}/forge-compose-mercure:${FORGE_TAG:?}@${FORGE_MERCURE_FRAGMENT_DIGEST:?}
 ```
 
-```dotenv
+```ini
 # ./.env.production
 
 FORGE_MERCURE=forward
 MERCURE_TAG=<tag>
 MERCURE_IMAGE_DIGEST=sha256:<digest> # <version>
-MERCURE_TRUSTED_ISSUERS=acme-shop.example.com
+FORGE_MERCURE_FRAGMENT_DIGEST=sha256:<digest> # <version>
 ```
 
-On a server, the keys live in a file only the hub reads ([Secrets docs](../deploy/secrets.md)):
+The hub runs `forge-php`'s `-app` image of the Forge release in `MERCURE_TAG`, on plain HTTP inside the project.
+With `FORGE_MERCURE=forward`, your app forwards `/.well-known/mercure` to it.
+The hub needs `MERCURE_PUBLISHER_JWT_KEY` and `MERCURE_TRUSTED_ISSUERS`.
+On a server, keep them in `shared/.env.mercure.local`. A deploy from CI writes that file from `DEPLOY_DOTENV_MERCURE`.
 
-```dotenv
-# /srv/acme-shop/shared/.env.mercure.local
-
-MERCURE_PUBLISHER_JWT_KEY=<key>
-MERCURE_SUBSCRIBER_JWT_KEY=<key>
-```
-
-Your application publishes to `http://mercure/.well-known/mercure`, signing with the same publisher key.
-
-While you develop, `FORGE_MERCURE=1` runs the hub inside `web-dev` instead
-([Web server docs](../images/web-server.md#customizing)).
+During development, `FORGE_MERCURE=1` runs the hub inside `php-app-dev` instead. No `mercure` service is needed.
+Take a look at the [web server](../images/web-server.md) for every Mercure variable.
 
 ## Customizing
 
-```dotenv
-# ./.env.production
+| Variable | Changes |
+| --- | --- |
+| `MERCURE_CONTAINER_MEMORY_LIMIT` | how much memory the service may use |
+| `MERCURE_CONTAINER_PIDS_LIMIT` | how many processes the service may start |
+| `FORGE_MERCURE_UPSTREAM` | where the app forwards `/.well-known/mercure` |
 
-MERCURE_EXTRA_DIRECTIVES=anonymous subscriptions
-```
+The defaults are in [`mercure.yaml`](../../compose/mercure.yaml).
 
-`anonymous` lets a browser without a token receive public updates; `subscriptions` publishes an update whenever
-someone subscribes or leaves, e.g. to show who is online.
+The hub keeps its history in the volume `forge-mercure-data` and Caddy's settings in `forge-mercure-config`.

@@ -6,23 +6,145 @@ RUNTIME_MAX_ATTEMPTS=15
 MERCURE_JWT_KEY=verify-hot-reload-0123456789abcdef
 MERCURE_ISSUER=verify-hot-reload
 
+is_flag_on() {
+  flag_value=$1
+
+  case "$flag_value" in
+    '' | 0 | false | off | no)
+      return 1
+    ;;
+  esac
+
+  return 0
+}
+
+is_color_on() {
+  if [ -n "${NO_COLOR:-}" ]; then
+    return 1
+  fi
+
+  if is_flag_on "${FORCE_COLOR:-}" || is_flag_on "${CLICOLOR_FORCE:-}"; then
+    return 0
+  fi
+
+  if { [ -n "${CLICOLOR:-}" ] && ! is_flag_on "$CLICOLOR"; } || [ "${TERM:-}" = dumb ]; then
+    return 1
+  fi
+
+  [ -t 1 ] || is_flag_on "${CI:-}"
+}
+
+format_output() {
+  output_label=$1
+  label_color=$2
+
+  awk \
+    -v label="$output_label" \
+    -v is_output_started="$is_output_started" \
+    -v label_color="$label_color" \
+    -v highlight_color="$HIGHLIGHT_COLOR" \
+    -v reset_color="$RESET_COLOR" '
+    function print_label(name) {
+      if (is_output_started != "") {
+        print ""
+      }
+
+      print label_color "[" name "]" reset_color
+      is_output_started = 1
+    }
+
+    {
+      sub(/\r$/, "")
+    }
+
+    NR == 1 && !/^\036/ {
+      print_label(label)
+    }
+
+    /^\036/ {
+      print_label(substr($0, 2))
+
+      next
+    }
+
+    reset_color != "" {
+      while (match($0, /`[^`]*`/)) {
+        $0 = substr($0, 1, RSTART - 1) \
+          highlight_color substr($0, RSTART + 1, RLENGTH - 2) reset_color \
+          substr($0, RSTART + RLENGTH)
+      }
+    }
+
+    {
+      print
+    }
+  '
+}
+
+print_output() {
+  output_label=$1
+  output_status=$2
+  output_text=$3
+
+  if [ -z "$output_text" ]; then
+    return "$output_status"
+  fi
+
+  if [ "$output_status" -eq 0 ]; then
+    printf '%s\n' "$output_text" | format_output "$output_label" "$NOTICE_COLOR"
+  else
+    printf '%s\n' "$output_text" | format_output "$output_label" "$ERROR_COLOR" >&2
+  fi
+
+  is_output_started=1
+
+  return "$output_status"
+}
+
+report_error() {
+  error_message=$1
+
+  print_output verify 1 "$error_message"
+}
+
+run_check() {
+  check_label=$1
+
+  shift
+
+  check_output=$("$@" 2>&1)
+
+  print_output "$check_label" "$?" "$check_output"
+}
+
+print_versions() {
+  image_reference=$1
+
+  shift
+
+  version_output=$(docker run --rm ${RESET_COLOR:+--tty} --entrypoint '' "$image_reference" bash -euo pipefail -c '
+    for version_command do
+      printf "\036%s\n" "${version_command%% *}"
+      $version_command 2>&1
+    done
+  ' bash "$@" 2>&1)
+
+  print_output '' "$?" "$version_output"
+}
+
 verify_toolchain() {
   image_reference=$1
 
   shift
 
-  docker run --rm "$image_reference" bash -euo pipefail -c '
-    make --version
-    git --version
-    dot -V
-    hadolint --version
-    actionlint -version
-    shellcheck --version
-
-    for command_name do
-      "$command_name" --version
-    done
-  ' bash "$@"
+  print_versions "$image_reference" \
+    'make --version' \
+    'git --version' \
+    'dot -V' \
+    'hadolint --version' \
+    'actionlint -version' \
+    'shellcheck --version' \
+    "$@"
 }
 
 verify_absence() {
@@ -32,7 +154,7 @@ verify_absence() {
 
   for command_name do
     if docker run --rm --entrypoint sh "$image_reference" -c 'command -v "$1"' sh "$command_name" >/dev/null; then
-      printf "\`%s\` ships \`%s\`.\n" "$image_reference" "$command_name" >&2
+      report_error "\`$image_reference\` ships \`$command_name\`."
 
       return 1
     fi
@@ -45,7 +167,7 @@ verify_app_tools() {
   image_reference=$1
   image_target=$2
 
-  if [ "$image_target" = prod ]; then
+  if [ "$image_target" = app ]; then
     if ! verify_absence "$image_reference" git make; then
       return 1
     fi
@@ -53,16 +175,13 @@ verify_app_tools() {
     return 0
   fi
 
-  docker run --rm --entrypoint sh "$image_reference" -euc '
-    git --version
-    make --version
-  '
+  print_versions "$image_reference" 'git --version' 'make --version'
 }
 
 verify_php() {
   image_reference=$1
 
-  docker run --rm --interactive --entrypoint php "$image_reference" <<'PHP'
+  run_check php docker run --rm --interactive --entrypoint php "$image_reference" <<'PHP'
 <?php
 
 foreach (['bcmath', 'exif', 'imagick', 'intl', 'pcntl', 'pdo_pgsql', 'redis', 'zip'] as $extension) {
@@ -71,6 +190,8 @@ foreach (['bcmath', 'exif', 'imagick', 'intl', 'pcntl', 'pdo_pgsql', 'redis', 'z
     exit(1);
   }
 }
+
+echo "\036imagick\n";
 
 foreach (['avif', 'gif', 'jpeg', 'png', 'webp'] as $format) {
   $image = new Imagick();
@@ -107,12 +228,11 @@ PHP
 verify_chromium() {
   image_reference=$1
 
-  docker run --rm "$image_reference" bash -euo pipefail -c '
-    chromium --version
-    chromedriver --version
-  '
+  if ! print_versions "$image_reference" 'chromium --version' 'chromedriver --version'; then
+    return 1
+  fi
 
-  docker run --rm --interactive --entrypoint sh "$image_reference" <<'SH'
+  run_check chromium docker run --rm --interactive --entrypoint sh "$image_reference" <<'SH'
 CHROMIUM_FLAGS=''
 
 for file in /etc/chromium.d/*; do
@@ -138,7 +258,7 @@ SH
 verify_app_php() {
   image_reference=$1
 
-  docker run --rm --interactive --entrypoint php "$image_reference" <<'PHP'
+  run_check php docker run --rm --interactive --entrypoint php "$image_reference" <<'PHP'
 <?php
 
 if (!extension_loaded('apcu')) {
@@ -151,7 +271,7 @@ PHP
 verify_app_users() {
   image_reference=$1
 
-  docker run --rm --interactive --entrypoint sh "$image_reference" <<'SH'
+  run_check id docker run --rm --interactive --entrypoint sh "$image_reference" <<'SH'
 if [ "$(id -u):$(id -g)" != "$FORGE_RUNTIME_USER" ]; then
   echo "The app does not run as \`$FORGE_RUNTIME_USER\`." >&2
   exit 1
@@ -226,11 +346,11 @@ verify_runtime() {
     sleep 1
   done
 
-  docker exec "$container_name" frankenphp version
+  run_check frankenphp docker exec "$container_name" frankenphp version
   docker rm --force "$container_name" >/dev/null
 
   if [ -z "$is_answering" ]; then
-    printf "\`%s\` does not answer on port \`%s\`.\n" "$image_reference" "$HOST_PORT" >&2
+    report_error "\`$image_reference\` does not answer on port \`$HOST_PORT\`."
 
     return 1
   fi
@@ -273,7 +393,7 @@ verify_hot_reload() {
   docker rm --force "$container_name" >/dev/null
 
   if [ "$subscription_status" != 200 ]; then
-    printf "\`%s\` refuses the hot reload subscription with \`%s\`.\n" "$image_reference" "$subscription_status" >&2
+    report_error "\`$image_reference\` refuses the hot reload subscription with \`$subscription_status\`."
 
     return 1
   fi
@@ -301,14 +421,14 @@ verify_response_headers() {
   protocol=$3
 
   if ! printf '%s\n' "$response_headers" | grep -q "^$protocol "; then
-    printf "\`%s\` does not answer over %s.\n" "$image_reference" "$protocol" >&2
+    report_error "\`$image_reference\` does not answer over $protocol."
 
     return 1
   fi
 
   for header_name in Content-Security-Policy Permissions-Policy; do
     if ! printf '%s\n' "$response_headers" | grep -qi "^$header_name:"; then
-      printf "\`%s\` sends no \`%s\` over %s.\n" "$image_reference" "$header_name" "$protocol" >&2
+      report_error "\`$image_reference\` sends no \`$header_name\` over $protocol."
 
       return 1
     fi
@@ -347,7 +467,7 @@ verify_security_headers() {
   fi
 
   if ! printf '%s\n' "$http2_headers" | grep -qi '^Alt-Svc:.*h3='; then
-    printf "\`%s\` does not advertise HTTP/3.\n" "$image_reference" >&2
+    report_error "\`$image_reference\` does not advertise HTTP/3."
 
     return 1
   fi
@@ -365,13 +485,15 @@ verify_cli() {
 
   case "$image_name" in
     forge)
-      if ! verify_php "$image_reference" || ! verify_toolchain "$image_reference" php composer bun; then
+      if ! verify_php "$image_reference" \
+        || ! verify_toolchain "$image_reference" 'php --version' 'composer --version' 'bun --version'; then
         return 1
       fi
     ;;
 
     forge-php)
-      if ! verify_php "$image_reference" || ! verify_toolchain "$image_reference" php composer; then
+      if ! verify_php "$image_reference" \
+        || ! verify_toolchain "$image_reference" 'php --version' 'composer --version'; then
         return 1
       fi
 
@@ -381,7 +503,7 @@ verify_cli() {
     ;;
 
     forge-bun)
-      if ! verify_toolchain "$image_reference" bun || ! verify_absence "$image_reference" php composer; then
+      if ! verify_toolchain "$image_reference" 'bun --version' || ! verify_absence "$image_reference" php composer; then
         return 1
       fi
     ;;
@@ -398,7 +520,7 @@ verify_app() {
     return 1
   fi
 
-  if [ "$image_target" = prod ] && ! verify_app_users "$image_reference"; then
+  if [ "$image_target" = app ] && ! verify_app_users "$image_reference"; then
     return 1
   fi
 
@@ -406,15 +528,15 @@ verify_app() {
     return 1
   fi
 
-  if [ "$image_target" = dev ]; then
+  if [ "$image_target" = app-dev ]; then
     if ! docker run --rm --entrypoint test "$image_reference" -f /usr/local/share/forge/app.Dockerfile; then
-      printf "\`%s\` has no generic app Dockerfile.\n" "$image_reference" >&2
+      report_error "\`$image_reference\` has no generic app Dockerfile."
 
       return 1
     fi
 
     if ! docker run --rm --entrypoint test "$image_reference" -x /usr/local/share/forge/deploy.sh; then
-      printf "\`%s\` has no executable deploy script.\n" "$image_reference" >&2
+      report_error "\`$image_reference\` has no executable deploy script."
 
       return 1
     fi
@@ -424,7 +546,7 @@ verify_app() {
     return 1
   fi
 
-  if [ "$image_target" = dev ] && ! verify_hot_reload "$image_reference"; then
+  if [ "$image_target" = app-dev ] && ! verify_hot_reload "$image_reference"; then
     return 1
   fi
 
@@ -442,9 +564,9 @@ verify_bun_app() {
     return 1
   fi
 
-  docker run --rm "$image_reference" bun --version
+  print_versions "$image_reference" 'bun --version'
 
-  if [ "$image_target" = prod ] && ! verify_app_users "$image_reference"; then
+  if [ "$image_target" = app ] && ! verify_app_users "$image_reference"; then
     return 1
   fi
 
@@ -452,15 +574,15 @@ verify_bun_app() {
     return 1
   fi
 
-  if [ "$image_target" = dev ]; then
+  if [ "$image_target" = app-dev ]; then
     if ! docker run --rm --entrypoint test "$image_reference" -f /usr/local/share/forge/app.Dockerfile; then
-      printf "\`%s\` has no generic app Dockerfile.\n" "$image_reference" >&2
+      report_error "\`$image_reference\` has no generic app Dockerfile."
 
       return 1
     fi
 
     if ! docker run --rm --entrypoint test "$image_reference" -x /usr/local/share/forge/deploy.sh; then
-      printf "\`%s\` has no executable deploy script.\n" "$image_reference" >&2
+      report_error "\`$image_reference\` has no executable deploy script."
 
       return 1
     fi
@@ -494,11 +616,11 @@ verify_bun_app() {
     sleep 1
   done
 
-  docker exec "$container_name" bun --version
+  run_check bun docker exec "$container_name" bun --version
   docker rm --force "$container_name" >/dev/null
 
   if [ -z "$is_answering" ]; then
-    printf "\`%s\` does not answer on port \`%s\`.\n" "$image_reference" "$HOST_PORT" >&2
+    report_error "\`$image_reference\` does not answer on port \`$HOST_PORT\`."
 
     return 1
   fi
@@ -506,23 +628,13 @@ verify_bun_app() {
   return 0
 }
 
-main() {
+verify_app_image() {
   image_reference=$1
   image_name=$2
   image_target=$3
 
   case "$image_name" in
-    forge | forge-php | forge-bun)
-      if ! verify_cli "$image_reference" "$image_name"; then
-        return 1
-      fi
-
-      if [ "$image_target" = chromium ] && ! verify_chromium "$image_reference"; then
-        return 1
-      fi
-    ;;
-
-    forge-php-app)
+    forge-php)
       if ! verify_app "$image_reference" "$image_target"; then
         return 1
       fi
@@ -532,28 +644,96 @@ main() {
       fi
     ;;
 
-    forge-app)
+    forge)
       if ! verify_app "$image_reference" "$image_target"; then
         return 1
       fi
 
-      docker run --rm "$image_reference" bun --version
+      print_versions "$image_reference" 'bun --version'
     ;;
 
-    forge-bun-app)
+    forge-bun)
       if ! verify_bun_app "$image_reference" "$image_target"; then
         return 1
       fi
     ;;
 
     *)
-      printf "Unknown image \`%s\`.\n" "$image_name" >&2
+      report_error "Unknown image \`$image_name\`."
 
       return 1
     ;;
   esac
 
   return 0
+}
+
+verify_image() {
+  image_reference=$1
+  image_name=$2
+  image_target=$3
+
+  case "$image_target" in
+    cli | cli-chromium)
+      if ! verify_cli "$image_reference" "$image_name"; then
+        return 1
+      fi
+
+      if [ "$image_target" = cli-chromium ] && ! verify_chromium "$image_reference"; then
+        return 1
+      fi
+    ;;
+
+    app | app-dev)
+      if ! verify_app_image "$image_reference" "$image_name" "$image_target"; then
+        return 1
+      fi
+    ;;
+
+    *)
+      report_error "Unknown target \`$image_target\`."
+
+      return 1
+    ;;
+  esac
+
+  return 0
+}
+
+main() {
+  image_reference=$1
+  image_name=$2
+  image_target=$3
+  start_seconds=$(date +%s)
+  is_output_started=''
+
+  if is_color_on; then
+    TITLE_COLOR=$(printf '\033[4;36m')
+    NOTICE_COLOR=$(printf '\033[35m')
+    SUCCESS_COLOR=$(printf '\033[32m')
+    ERROR_COLOR=$(printf '\033[31m')
+    HIGHLIGHT_COLOR=$(printf '\033[33m')
+    RESET_COLOR=$(printf '\033[0m')
+  else
+    TITLE_COLOR=''
+    NOTICE_COLOR=''
+    SUCCESS_COLOR=''
+    ERROR_COLOR=''
+    HIGHLIGHT_COLOR=''
+    RESET_COLOR=''
+  fi
+
+  printf '%s\n\n' "${TITLE_COLOR}Verify $image_reference ($image_name $image_target)${RESET_COLOR}"
+
+  if verify_image "$image_reference" "$image_name" "$image_target"; then
+    printf '\n%s\n' "${SUCCESS_COLOR}Verified in $(($(date +%s) - start_seconds))s.${RESET_COLOR}"
+
+    return 0
+  fi
+
+  printf '\n%s\n' "${ERROR_COLOR}Failed after $(($(date +%s) - start_seconds))s.${RESET_COLOR}" >&2
+
+  return 1
 }
 
 main "$@"

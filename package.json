@@ -16,6 +16,7 @@
   },
   "type": "module",
   "imports": {
+    "#package.json": "./package.json",
     "#src/*": "./src/*.ts",
     "#tests/*": "./tests/*.ts"
   },

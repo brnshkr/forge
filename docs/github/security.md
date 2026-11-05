@@ -1,11 +1,12 @@
 # 🛡️ Security [🔍](../../.github/workflows/security.yaml 'Go to source')
 
-Each scanner fails the run on a finding and also lists its findings in your repository's _Security_ tab.
-Dismissing an alert there never makes a run pass; only the files below accept a finding.
+`security.yaml` runs four scanners. Each fails the run on a finding and lists it in your repository's _Security_ tab.
 
 ## Usage
 
 ```yaml
+# ./.github/workflows/maintenance.yaml
+
 jobs:
   security:
     permissions:
@@ -13,7 +14,7 @@ jobs:
       security-events: write
     uses: brnshkr/forge/.github/workflows/security.yaml@<commit> # <tag>
     with:
-      scan-images: '["ghcr.io/<owner>/acme-base:<tag>"]'
+      scan-images: '["ghcr.io/acme/acme-base:<tag>"]'
 ```
 
 | Scanner | Scans |
@@ -21,17 +22,19 @@ jobs:
 | Semgrep | your sources |
 | Gitleaks | your Git history |
 | OSV-Scanner | your lock files |
-| Trivy | your images: each build in `publish.yaml`, and the ones you released, on a schedule |
+| Trivy | each image build in `publish.yaml`, and your released images on a schedule |
 
-On a schedule, Trivy scans the widest tags of your newest stable release or, before the first, your newest prerelease.
-`scan-images` adds more, and a tag not published yet is skipped.
+On a schedule, Trivy scans the widest tags of your newest stable release. Before the first one, it scans your newest
+prerelease. `scan-images` adds more. An image not published yet is skipped.
 Every fixable MEDIUM, HIGH, or CRITICAL finding fails the run.
 
-## Customizing
+Dismissing an alert in the _Security_ tab never makes a run pass. Only the files below accept a finding.
 
-Turn a Semgrep rule off in `./conf/semgrep.dist.yaml`
-([Semgrep docs](https://github.com/brnshkr/config/blob/master/docs/semgrep.md#customizing)),
-or a single line with a comment above it:
+## Accepting findings
+
+Turn a Semgrep rule off in `./conf/semgrep.dist.yaml`,
+see the [Semgrep docs](https://github.com/brnshkr/config/blob/master/docs/semgrep.md#customizing).
+Or turn it off for one line, with a comment above it:
 
 ```php
 // nosemgrep: <rule-id>
@@ -65,3 +68,17 @@ vulnerabilities:
     statement: only reachable through an extension we do not load
     expired_at: 9999-12-31
 ```
+
+## Customizing
+
+| Input | Changes |
+| --- | --- |
+| `scan-images` | which published images are scanned besides your newest release's |
+| `install-command` | how dependencies install |
+| `semgrep-command` | how Semgrep runs |
+
+The defaults are in [`security.yaml`](../../.github/workflows/security.yaml).
+
+### Without the shared Makefile
+
+Set `semgrep-command` to a command that runs Semgrep and writes its SARIF report to the path in `SARIF_FILE`.

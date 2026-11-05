@@ -4,99 +4,91 @@ The branch name decides what CI does and which version a release gets.
 
 ## Branches
 
-| Branch | What CI does |
+| Branch | CI |
 | --- | --- |
-| `feature/*`, `fix/*` | checks, then builds and scans, in a pull request into `dev/*` |
-| `dev/<major>.<minor>`, `dev/<major>.x` | checks, then builds and scans, and deploys `testing` where it has one |
-| `hotfix/*` | checks, then builds and scans, branched from a release tag |
-| `release/<major>.<minor>.<patch>` | checks, then builds, scans, tags, and publishes |
+| `feature/*`, `fix/*` | checks, builds, and scans, in a pull request into `dev/*` |
+| `dev/<major>.<minor>`, `dev/<major>.x` | checks, builds, and scans, and deploys `testing` where there is one |
+| `hotfix/*` | checks, builds, and scans, branched from a release tag |
+| `release/<major>.<minor>.<patch>` | checks, builds, scans, tags, and publishes |
 
 A pull request into `release/*` comes from `dev/*`, or from a `hotfix/*` branched from the tag it fixes.
 
-The release branch sets the version, so your manifests keep `0.0.0-dev` (or no version at all)
-and publishing writes the real one into them.  
-A project with both manifests needs the same description, homepage, and license in each,
-and the `name` in its `package.json` has to be `@` plus the one in `composer.json`, e.g. `@acme/user`.
+The release branch sets the version. Your manifests keep `0.0.0-dev`, or no version at all,
+and publishing writes the real one into them.
+A project with both manifests needs the same description, homepage, and license in each.
+The `name` in `package.json` is `@` plus the one in `composer.json`, e.g. `@acme/user`.
 
 ## What a release publishes
 
-- every image of a `.env.<stage>` file that sets `IMAGE_NAME` ([Your image](./images/your-image.md))
-- a `package.json` that is not `private`, to npm
-- a `composer.json` whose `type` is not `project`, to Packagist
-- all `./conf/compose/*.yaml` and `./compose/*.yaml` files as Compose fragments
+- every image of a `.env.<stage>` file that sets `IMAGE_NAME`, see [your image](./images/your-image.md)
+- a `package.json` that isn't `private`, to npm
+- a `composer.json` whose `type` isn't `project`, to Packagist
+- every `./conf/compose/*.yaml` and `./compose/*.yaml` that runs an image, as a Compose fragment
 
-New packages on GHCR start private, so make each one public once for other repositories to pull it.
-
-## Pipeline
+New packages on GHCR start private. Make each one public once, so other repositories can pull it.
 
 ```mermaid
 graph TD
   targets[resolve targets] --> image[build, scan, and push images untagged]
-  image --> push[tag images]
-  image --> fragments[publish fragments]
-  image -->|with .env.staging| staging[deploy staging and every other stage]
-  staging -->|npm package| npm[publish to npm]
-  image -->|npm package| npm
-  staging --> push
-  staging --> fragments
-  npm --> push
-  npm --> fragments
+  image --> staging[deploy staging and every other target, where there is one]
+  staging --> npm[publish to npm, where package.json is public]
+  npm --> push[tag images]
+  npm --> fragments[publish fragments]
   push --> changelog[commit changelog]
   fragments --> changelog
   changelog --> tag[Git tags]
   tag --> release[GitHub release]
   release --> merge[merge back into dev/*]
-  merge --> dispatch[notify other repositories]
-  merge -->|Composer package| packagist[notify Packagist]
-  packagist --> dispatch
-  release -->|once approved| production[deploy production]
-  release --> pages[publish GitHub Pages]
+  merge --> packagist[notify Packagist, where composer.json is a package]
+  packagist --> dispatch[notify other repositories]
+  release -->|with a production target, once approved| production[deploy production]
+  release -->|with a pages target| pages[publish GitHub Pages]
 ```
 
-A secret the release lacks, or a leftover npm token, fails the run before anything is pushed
-([Publishing docs](./github/publishing.md#trusted-publishing)).
+A missing secret, or a leftover npm token, fails the run before anything is pushed,
+see [trusted publishing](./github/publishing.md#trusted-publishing).
 
-From 1.0.0 on, the changelog section of the release is committed to `./changelog/<major>.x.md` before tagging.
-The GitHub release then carries it as notes, plus the npm tarball and a Composer zip for vendoring by hand.
+From 1.0.0 on, the release's changelog section is committed to `./changelog/<major>.x.md` before tagging.
+The GitHub release carries it as notes, plus the npm tarball and a Composer zip for vendoring by hand.
 
-Last, the release is merged into `dev/<major>.<minor>` (or `dev/<major>.x` if that is missing)
-and the release branch is deleted. On a conflict the run fails and keeps the branch, so you can merge it yourself.
-Every other repository your App is installed on then gets a `brnshkr-release` dispatch,
-so its bump picks the release up.
+Last, the release is merged into `dev/<major>.<minor>`, else `dev/<major>.x`, and the release branch is deleted.
+On a conflict the run fails and keeps the branch. Then merge it yourself.
+Every other repository your App is installed on gets a `brnshkr-release` dispatch. Its bump picks the release up.
 
 ## Tags
 
-A release `<major>.<minor>.<patch>` tags its images `<major>`, `<major>.<minor>`, and `<major>.<minor>.<patch>`,
-and its commit `v<major>`, `v<major>.<minor>`, and `v<major>.<minor>.<patch>`.
-Each pushed image is labeled with its version, its commit, and the commit's time.
+| Release | Image tags | Git tags |
+| --- | --- | --- |
+| `1.2.3` | `1`, `1.2`, `1.2.3` | `v1`, `v1.2`, `v1.2.3` |
+| `0.2.3` | `0.2`, `0.2.3` | `v0.2`, `v0.2.3` |
+| `1.3.0-rc.1` | `1.3.0-rc.1` | `v1.3.0-rc.1` |
 
-Some releases get fewer tags:
+Below 1.0.0 a minor may break, so `0` never exists. A Composer package gets only the Git tag `v1.2.3`.
+Fragments take the Git tags without the `v`. Each pushed image is labeled with its version, commit, and the commit's time.
 
-- A prerelease only gets its own version, e.g. `release/<version>-rc.<number>` publishes `<version>-rc.<number>`
-- Below 1.0.0 a minor may break, so `release/0.<minor>.<patch>` moves `0.<minor>` but never `0`
-- A Composer package only gets the git tag `v<major>.<minor>.<patch>`,
-  since Composer would read `v<major>` and `v<major>.<minor>` as versions of their own
+A stable release also tags `IMAGE_ALIASES`, each with `IMAGE_SUFFIX`.
+A prerelease does not. Forge's own aliases:
 
-Prereleases are limited to `alpha`, `beta`, and `rc`, written the way npm writes them. Composer reads them the same way.
-On npm, a prerelease is published as `rc` (or `alpha`, `beta`) instead of `latest`,
-so `npm install @acme/user` keeps getting the last stable release and `npm install @acme/user@rc` the prerelease.
+| Image | Alias |
+| --- | --- |
+| `forge` | `TOOLCHAIN_ALIASES`, e.g. `forge:php8.5-bun1.4-cli` |
+| `forge-php` | `PHP_ALIASES`, e.g. `forge-php:php8.5-app` |
+| `forge-bun` | `BUN_ALIASES`, e.g. `forge-bun:bun1.4-app-dev` |
 
-`IMAGE_ALIASES` adds more image tags (none unless you set it), which a prerelease never moves.
-Forge's own images use it for their toolchain, e.g. `forge:php<php-minor>-bun<bun-minor>`, `forge-php:php<php-minor>`,
-`forge-bun:bun<bun-minor>`, `forge-app:php<php-minor>-bun<bun-minor>-dev`,
-`forge-php-app:php<php-minor>-dev`, and `forge-bun-app:bun<bun-minor>-dev`.
+Prereleases are `alpha`, `beta`, and `rc`, written the way npm writes them. Composer reads them the same way.
+On npm, a prerelease is published as `rc`, `alpha`, or `beta` instead of `latest`.
+`npm install @acme/user` keeps getting the last stable release, and `npm install @acme/user@rc` the prerelease.
 
 ## Withdrawing a release
 
-A released version is never tagged again.
-If nobody may use a release anymore (e.g. because it carries a compromised dependency),
-withdraw it by hand and ship the next patch:
+A released version is never tagged again. If nobody may use a release anymore,
+e.g. because it carries a compromised dependency, withdraw it by hand and ship the next patch:
 
-1. Delete the GitHub release, then its `v<version>` tag (your [tag ruleset](./github/setup.md#rulesets) has to allow it)
-2. Press _Update_ on the package's Packagist page, which drops the version
-3. Run `npm unpublish @acme/user@<version>`, which only works within npm's [unpublish policy](https://docs.npmjs.com/policies/unpublish).
-   If npm refuses, run `npm deprecate @acme/user@<version> "<reason>"` instead, which warns on every install,
-   and ask npm support to remove the version
-4. Delete the version from your GHCR packages, which also removes `:<major>` and `:<major>.<minor>`
-   where they still point to it, until the next patch moves them again
-5. Publish a GitHub security advisory naming the affected versions
+1. Delete the GitHub release, then its `v<version>` tag. Your [tag ruleset](./github/setup.md#rulesets) has to allow it.
+2. Press _Update_ on the package's Packagist page. That drops the version.
+3. Run `npm unpublish @acme/user@<version>`. It works only within npm's
+   [unpublish policy](https://docs.npmjs.com/policies/unpublish). If npm refuses,
+   run `npm deprecate @acme/user@<version> "<reason>"` and ask npm support to remove the version.
+4. Delete the version from your GHCR packages, and from your mirror if you have one.
+   `:<major>` and `:<major>.<minor>` go too where they still point to it, until the next patch moves them again.
+5. Publish a GitHub security advisory naming the affected versions.

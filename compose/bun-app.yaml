@@ -1,19 +1,19 @@
 services:
-  app:
-    image: ${FORGE_APP_IMAGE:-${FORGE_REPOSITORY_OWNER:?Set it to the namespace of Forge's images, e.g. `ghcr.io/brnshkr`.}/${FORGE_APP_IMAGE_NAME:-forge-bun-app}:${FORGE_TAG:?Set `FORGE_TAG` and `FORGE_APP_IMAGE_DIGEST`, or `FORGE_APP_IMAGE`.}${FORGE_APP_IMAGE_SUFFIX:-}@${FORGE_APP_IMAGE_DIGEST:?Set `FORGE_TAG` and `FORGE_APP_IMAGE_DIGEST`, or `FORGE_APP_IMAGE`.}}
-    command: ${FORGE_COMMAND:-bun run start}
+  bun-app:
+    extends:
+      file: ./base.yaml
+      service: base
+    image: "${FORGE_APP_IMAGE:-\
+      ${FORGE_IMAGE_NAMESPACE:-\
+      ${FORGE_NAMESPACE:?Set it to the namespace of Forge's images and fragments, e.g. `docker.io/brnshkr`.}}\
+      /${FORGE_APP_IMAGE_NAME:-${FORGE_IMAGE_NAME:-forge}}\
+      :${FORGE_TAG:?Set `FORGE_TAG` and `FORGE_APP_IMAGE_DIGEST`, or `FORGE_APP_IMAGE`.}-app\
+      @${FORGE_APP_IMAGE_DIGEST:?Set `FORGE_TAG` and `FORGE_APP_IMAGE_DIGEST`, or `FORGE_APP_IMAGE`.}}"
+    command: >-
+      ${BUN_APP_COMMAND:-bun run start}
     working_dir: /app
-    restart: unless-stopped
-    logging:
-      driver: local
-    init: true
-    read_only: true
-    mem_limit: ${APP_CONTAINER_MEMORY_LIMIT:-1g}
-    pids_limit: ${APP_CONTAINER_PIDS_LIMIT:-512}
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
+    mem_limit: ${BUN_APP_CONTAINER_MEMORY_LIMIT:-1g}
+    pids_limit: ${BUN_APP_CONTAINER_PIDS_LIMIT:-512}
     sysctls:
       net.ipv4.ip_unprivileged_port_start: 0
     env_file:
@@ -41,7 +41,7 @@ services:
       timeout: 3s
       retries: 10
     ports:
-      - ${APP_HOST_IP:-127.0.0.1}:${APP_HTTP_PORT:?}:80
+      - ${APP_HOST_IP:-127.0.0.1}:${BUN_APP_HTTP_PORT:-${APP_HTTP_PORT:?}}:80
     tmpfs:
       - /tmp:rw,nosuid,nodev,size=512m
       - /run:rw,nosuid,nodev,size=32m

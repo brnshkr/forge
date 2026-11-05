@@ -1,20 +1,22 @@
 services:
   valkey:
-    image: ${VALKEY_IMAGE:-${VALKEY_REPOSITORY:-valkey/valkey}:${VALKEY_TAG:?Set `VALKEY_TAG` and `VALKEY_IMAGE_DIGEST`, or `VALKEY_IMAGE`.}@${VALKEY_IMAGE_DIGEST:?Set `VALKEY_TAG` and `VALKEY_IMAGE_DIGEST`, or `VALKEY_IMAGE`.}}
+    extends:
+      file: ./base.yaml
+      service: base
+    image: "${VALKEY_IMAGE:-\
+      ${VALKEY_REPOSITORY:-valkey/valkey}\
+      :${VALKEY_TAG:?Set `VALKEY_TAG` and `VALKEY_IMAGE_DIGEST`, or `VALKEY_IMAGE`.}\
+      @${VALKEY_IMAGE_DIGEST:?Set `VALKEY_TAG` and `VALKEY_IMAGE_DIGEST`, or `VALKEY_IMAGE`.}}"
     container_name: ${COMPOSE_PROJECT_NAME}-valkey
-    command: valkey-server --maxmemory ${VALKEY_MAXMEMORY:-256mb} --maxmemory-policy ${VALKEY_MAXMEMORY_POLICY:-noeviction} --appendonly yes --appendfsync everysec
+    command: >-
+      valkey-server
+      --maxmemory ${VALKEY_MAXMEMORY:-256mb}
+      --maxmemory-policy ${VALKEY_MAXMEMORY_POLICY:-noeviction}
+      --appendonly yes
+      --appendfsync everysec
     user: valkey
-    restart: unless-stopped
-    logging:
-      driver: local
-    init: true
-    read_only: true
     mem_limit: ${VALKEY_CONTAINER_MEMORY_LIMIT:-512m}
     pids_limit: ${VALKEY_CONTAINER_PIDS_LIMIT:-256}
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
     healthcheck:
       test:
         - CMD

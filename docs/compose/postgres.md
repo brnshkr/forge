@@ -1,6 +1,6 @@
 # 🗄️ Postgres [🔍](../../compose/postgres.yaml 'Go to source')
 
-`forge/compose/postgres` runs PostgreSQL with its data in the volume `forge-postgres-data`.
+`postgres` runs a PostgreSQL database for your app.
 
 ## Usage
 
@@ -8,28 +8,35 @@
 # ./conf/compose.yaml
 
 include:
-  - path: oci://${FORGE_REPOSITORY}/compose/postgres:${POSTGRES_FRAGMENT_TAG:-${FORGE_TAG:?}}@${POSTGRES_FRAGMENT_DIGEST:?}
+  - path: oci://${FORGE_FRAGMENT_NAMESPACE:-${FORGE_NAMESPACE:?}}/forge-compose-postgres:${FORGE_TAG:?}@${FORGE_POSTGRES_FRAGMENT_DIGEST:?}
 ```
 
-```dotenv
+```ini
 # ./.env
 
+COMPOSE_PROJECT_NAME=acme-shop
 POSTGRES_DB=acme_shop
 POSTGRES_USER=acme
-POSTGRES_PASSWORD=<password>
+POSTGRES_PASSWORD=acme
+
+POSTGRES_TAG=<tag>
+POSTGRES_IMAGE_DIGEST=sha256:<digest> # <version>
+FORGE_POSTGRES_FRAGMENT_DIGEST=sha256:<digest> # <version>
 ```
+
+The container is `acme-shop-postgres`. Your app reaches it at the host `postgres`, port `5432`.
+It publishes no port on your machine. Its data lives in the volume `forge-postgres-data`.
+The health check runs `pg_isready` for `POSTGRES_USER` and `POSTGRES_DB`.
+
+On a server, `DEPLOY_SHARED_SERVICES=postgres` runs one Postgres for every project there,
+with a role and a database per project. Take a look at [shared services](../deploy/shared.md).
 
 ## Customizing
 
-A deploy creates the databases in `POSTGRES_EXTRA_DATABASES` beside `POSTGRES_DB` where they are missing,
-named with letters, digits, and `_` only:
+| Variable | Changes |
+| --- | --- |
+| `POSTGRES_REPOSITORY` | where the image comes from |
+| `POSTGRES_CONTAINER_MEMORY_LIMIT` | how much memory the service may use |
+| `POSTGRES_CONTAINER_PIDS_LIMIT` | how many processes the service may start |
 
-```dotenv
-# ./.env.production
-
-POSTGRES_EXTRA_DATABASES=customer_db audit
-```
-
-A second Postgres extends the one you include, with a name, container, and volume of its own,
-the way the [Valkey docs](./valkey.md#customizing) show.
-Before migrating, a deploy dumps every database of every Postgres it runs ([Server docs](../deploy/server.md#backups)).
+The defaults are in [`postgres.yaml`](../../compose/postgres.yaml).

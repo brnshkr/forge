@@ -1,0 +1,39 @@
+services:
+  bun-worker:
+    extends:
+      file: ./base.yaml
+      service: base
+    image: "${FORGE_APP_IMAGE:-\
+      ${FORGE_IMAGE_NAMESPACE:-\
+      ${FORGE_NAMESPACE:?Set it to the namespace of Forge's images and fragments, e.g. `docker.io/brnshkr`.}}\
+      /${FORGE_APP_IMAGE_NAME:-${FORGE_IMAGE_NAME:-forge}}\
+      :${FORGE_TAG:?Set `FORGE_TAG` and `FORGE_APP_IMAGE_DIGEST`, or `FORGE_APP_IMAGE`.}-app\
+      @${FORGE_APP_IMAGE_DIGEST:?Set `FORGE_TAG` and `FORGE_APP_IMAGE_DIGEST`, or `FORGE_APP_IMAGE`.}}"
+    command: >-
+      ${BUN_WORKER_COMMAND:-bun run worker}
+    working_dir: /app
+    mem_limit: ${BUN_WORKER_CONTAINER_MEMORY_LIMIT:-512m}
+    pids_limit: ${BUN_WORKER_CONTAINER_PIDS_LIMIT:-512}
+    stop_grace_period: ${BUN_WORKER_STOP_GRACE_PERIOD:-60s}
+    env_file:
+      - path: ${FORGE_SHARED_DIR:-/app/var/shared}/.env.local
+        required: false
+      - path: ${FORGE_SHARED_DIR:-/app/var/shared}/.env.${DEPLOY_APP_ENV:-prod}.local
+        required: false
+      - path: ${FORGE_SHARED_DIR:-/app/var/shared}/.env.deploy.local
+        required: false
+    environment:
+      APP_ENV: ${DEPLOY_APP_ENV:-prod}
+      FORGE_RELEASE: ${FORGE_RELEASE:-}
+      NODE_ENV: production
+    healthcheck:
+      disable: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=512m
+      - /run:rw,nosuid,nodev,size=32m
+      - ${FORGE_CACHE_DIR:-/app/var/cache}:rw,nosuid,nodev,size=512m,uid=${RUNTIME_USER_UID:-33},gid=${RUNTIME_USER_GID:-33},mode=0700
+    volumes:
+      - forge-var:${FORGE_VAR_DIR:-/app/var}
+
+volumes:
+  forge-var: ~

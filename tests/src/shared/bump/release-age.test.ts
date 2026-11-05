@@ -11,6 +11,7 @@ import {
 } from '#src/shared/bump/release-age';
 
 import { GHCR } from '#src/shared/registry';
+import { packageName, packageOrganization } from '#src/shared/utils/package-json';
 import { createDigest } from '#tests/support/digest';
 import { createDirectory } from '#tests/support/directory';
 import { writeFiles } from '#tests/support/repository';
@@ -133,7 +134,7 @@ describe('the candidate a release age selects', () => {
     },
     {
       name: 'is an image of the organization at once',
-      candidateReference: `${GHCR}/brnshkr/forge:1@${DIGEST}`,
+      candidateReference: `${GHCR}/${packageOrganization}/forge:1@${DIGEST}`,
       minimumAgeSeconds: MINIMUM_AGE_SECONDS,
     },
   ])('$name', (scenario) => {
@@ -180,7 +181,7 @@ describe('the sightings a release age has recorded', () => {
       },
     },
   ])('$name', async (scenario) => {
-    const directory = await createDirectory('forge-seen-');
+    const directory = await createDirectory(`${packageName}-seen-`);
 
     await writeFiles(directory, scenario.text === undefined
       ? {}
@@ -194,7 +195,7 @@ describe('the sightings a release age has recorded', () => {
   });
 
   it('replace their own scope with every pin\'s sightings and leave other scopes alone', async () => {
-    const directory = await createDirectory('forge-seen-');
+    const directory = await createDirectory(`${packageName}-seen-`);
     const seenFile = path.join(directory, 'seen.cache');
 
     await write(seenFile, JSON.stringify({
@@ -229,7 +230,7 @@ describe('the sightings a release age has recorded', () => {
   });
 
   it('replace a seen file that holds no object', async () => {
-    const directory = await createDirectory('forge-seen-');
+    const directory = await createDirectory(`${packageName}-seen-`);
     const seenFile = path.join(directory, 'seen.cache');
 
     await write(seenFile, '[]');

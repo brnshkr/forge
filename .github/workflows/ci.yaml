@@ -30,6 +30,16 @@ on:
         required: false
         type: string
 
+      mirror-registry:
+        description: Registry host every release tag is also pushed to, defaults to the `MIRROR_REGISTRY` variable
+        required: false
+        type: string
+
+      mirror-namespace:
+        description: Registry namespace on the mirror, defaults to the `MIRROR_NAMESPACE` variable or `namespace`
+        required: false
+        type: string
+
       skip:
         description: JSON array of jobs and groups to skip
         required: false
@@ -39,6 +49,14 @@ on:
         description: JSON array of the targets to deploy to, replacing every stage file that sets `DEPLOY_HOSTS`
         required: false
         type: string
+
+      group-image-builds:
+        description: >-
+          Whether stages sharing a Dockerfile build in two waves on one cache, so their common layers build once;
+          `false` builds every stage at once with a cache of its own
+        required: false
+        type: boolean
+        default: true
 
       matrix-max-parallel:
         description: Maximum number of `TEST_MATRIX` rows running at once
@@ -116,6 +134,14 @@ on:
         description: Packagist API token
         required: false
 
+      MIRROR_REGISTRY_USERNAME:
+        description: Username on the mirror registry
+        required: false
+
+      MIRROR_REGISTRY_TOKEN:
+        description: Token on the mirror registry; without it, nothing is mirrored
+        required: false
+
       REGISTRY_USERNAME:
         description: Registry username, defaults to the user that started the run
         required: false
@@ -175,8 +201,11 @@ jobs:
       runner: ${{ inputs.runner }}
       registry: ${{ inputs.registry || 'ghcr.io' }}
       namespace: ${{ inputs.namespace }}
+      mirror-registry: ${{ inputs.mirror-registry || vars.MIRROR_REGISTRY }}
+      mirror-namespace: ${{ inputs.mirror-namespace || vars.MIRROR_NAMESPACE }}
       skip: ${{ inputs.skip || '[]' }}
       deploy-targets: ${{ inputs.deploy-targets || '[]' }}
+      group-image-builds: ${{ inputs.group-image-builds != false }}
       install-command: ${{ inputs.install-command }}
       build-command: ${{ inputs.build-command }}
       changelog-notes-command: >-
@@ -193,6 +222,8 @@ jobs:
       BOT_PRIVATE_KEY: ${{ secrets.BOT_PRIVATE_KEY }}
       NPM_CONFIG_TOKEN: ${{ secrets.NPM_CONFIG_TOKEN }}
       PACKAGIST_TOKEN: ${{ secrets.PACKAGIST_TOKEN }}
+      MIRROR_REGISTRY_TOKEN: ${{ secrets.MIRROR_REGISTRY_TOKEN }}
+      MIRROR_REGISTRY_USERNAME: ${{ secrets.MIRROR_REGISTRY_USERNAME }}
       PACKAGIST_USERNAME: ${{ secrets.PACKAGIST_USERNAME }}
       REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
       REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}

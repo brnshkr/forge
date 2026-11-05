@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { packageFullName } from '#src/shared/utils/package-json';
 import { readGroup } from '#src/shared/utils/pattern';
 import { compareText, listRepositoryFiles, readRepositoryFile } from '#tests/support/repository';
 
@@ -12,7 +13,7 @@ const ACTIONS_OUR_ACTIONS_CALL = [
 
 const REUSABLE_WORKFLOWS = WORKFLOW_FILES
   .filter((workflowFile) => workflowFile.startsWith('.github/workflows/'))
-  .map((workflowFile) => `brnshkr/forge/${workflowFile}@*`);
+  .map((workflowFile) => `${packageFullName.replace(/^@/v, '')}/${workflowFile}@*`);
 
 const sortActions = (actions: readonly string[]): string[] => actions.toSorted(compareText);
 

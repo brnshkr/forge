@@ -1,0 +1,87 @@
+name: Read Image Metadata
+description: Reads where an image is pushed and its labels, so its build and its push label it the same
+
+inputs:
+  dockerfile:
+    description: Dockerfile the image builds from. Forge's generic one adds labels from the repository and its manifest
+    required: true
+
+  name:
+    description: Name of the image
+    required: true
+
+  tags:
+    description: Tags of the image, one per line, e.g. `ghcr.io/acme/acme-shop:1.2.3`
+    required: true
+
+  version:
+    description: Version the image is labeled with, empty outside a release
+    required: false
+    default: ''
+
+outputs:
+  repository:
+    description: Image without its tag, e.g. `ghcr.io/acme/acme-shop`
+    value: ${{ steps.metadata.outputs.repository }}
+
+  labels:
+    description: Labels of the image, one `key=value` per line
+    value: ${{ steps.metadata.outputs.labels }}
+
+runs:
+  using: composite
+  steps:
+    - name: Read Image Metadata
+      id: metadata
+      shell: bash
+      env:
+        DOCKERFILE: ${{ inputs.dockerfile }}
+        NAME: ${{ inputs.name }}
+        TAGS: ${{ inputs.tags }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        created=$(git log -1 --format=%cI)
+        first_tag=$(printf '%s\n' "$TAGS" | head -n 1)
+
+        {
+          echo "repository=${first_tag%:*}"
+          echo 'labels<<LABELS'
+          echo "org.opencontainers.image.created=$created"
+          echo "org.opencontainers.image.revision=$GITHUB_SHA"
+
+          if [ -n "$VERSION" ]; then
+            echo "org.opencontainers.image.version=$VERSION"
+          fi
+
+          if [ "$DOCKERFILE" = .cache/forge.cache/docker/app/Dockerfile ]; then
+            echo "org.opencontainers.image.title=$NAME"
+            echo "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+            echo "org.opencontainers.image.url=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+
+            manifest=
+
+            for candidate in composer.json package.json; do
+              if [ -f "$candidate" ]; then
+                manifest=$candidate
+
+                break
+              fi
+            done
+
+            jq -n -r --arg owner "$GITHUB_REPOSITORY_OWNER" '
+              (try input catch {})
+              | (.name // "" | ltrimstr("@") | split("/") | if length > 1 then .[0] else $owner end
+                | "org.opencontainers.image.vendor=\(.)"),
+              ([.authors // .author | if type == "array" then .[] else . end | if type == "object" then .name else . end
+                | strings | select(. != "")]
+                | if length > 0 then join(", ") else $owner end
+                | "org.opencontainers.image.authors=\(.)"),
+              (.description // empty | "org.opencontainers.image.description=\(.)"),
+              (.license // empty | if type == "array" then join(" OR ") else . end
+                | "org.opencontainers.image.licenses=\(.)"),
+              (.homepage // empty | "org.opencontainers.image.documentation=\(.)")
+            ' "${manifest:-/dev/null}"
+          fi
+
+          echo LABELS
+        } >>"$GITHUB_OUTPUT"

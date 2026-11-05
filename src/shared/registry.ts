@@ -3,6 +3,7 @@ import { sleep } from 'bun';
 import { getErrorMessage } from '#src/shared/utils/error';
 import { STATUS_CODE } from '#src/shared/utils/http';
 import { isPlainObject, readOwnValue } from '#src/shared/utils/object';
+import { packageFullName } from '#src/shared/utils/package-json';
 import { readGroup } from '#src/shared/utils/pattern';
 import { parseSeconds } from '#src/shared/utils/string';
 
@@ -94,7 +95,7 @@ const fetchReachable = async (url: string | URL, requestInit: RequestInit): Prom
 const withUserAgent = (requestInit: RequestInit): RequestInit => {
   const headers = new Headers(requestInit.headers);
 
-  headers.set('User-Agent', 'brnshkr-forge');
+  headers.set('User-Agent', packageFullName.replace(/^@/v, ''));
 
   return {
     ...requestInit,

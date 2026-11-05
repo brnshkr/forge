@@ -1,26 +1,33 @@
-# 🐘 PHP settings [🔍](../../docker/php/ 'Go to source')
+# 🐘 PHP [🔍](../../docker/php/ 'Go to source')
 
-`forge:<tag>`, `forge-php:<tag>`, and the PHP app `-dev` images start from PHP's `php.ini-development`;
-the PHP app production images start from `php.ini-production`.
-On top, [`90-forge.ini`](../../docker/php/90-forge.ini) sets the timezone, the memory and upload limits,
-strict and secure session cookies, and a bigger opcache.
-`forge-app:<tag>` and `forge-php-app:<tag>` also add [`91-forge-production.ini`](../../docker/php/91-forge-production.ini),
-which enables the JIT and turns off the timestamp checks.
+Every image with PHP starts from PHP's own `php.ini` and adds Forge's settings on top.
 
-## Customizing
+## Usage
 
-Override anything in `./conf/php/*.ini`, which PHP reads last:
+| Role | Starts from | Adds |
+| --- | --- | --- |
+| `-cli`, `-cli-chromium`, `-app-dev` | `php.ini-development` | `90-forge.ini` |
+| `-app` | `php.ini-production` | `90-forge.ini`, `91-forge-production.ini` |
+
+[`90-forge.ini`](../../docker/php/90-forge.ini) sets the timezone, `expose_php`, the memory and upload limits,
+the realpath cache, opcache's sizes, and strict, secure session cookies.
+
+[`91-forge-production.ini`](../../docker/php/91-forge-production.ini) turns on the tracing JIT
+and `opcache.enable_file_override`. It turns off `opcache.validate_timestamps`.
+A running `-app` never rereads its code.
+
+PHP stays on UTC whatever `TZ` says.
+
+## Your own settings
+
+Put your own settings in `./conf/php/`. PHP reads every `*.ini` there last:
 
 ```ini
-; ./conf/php/preload.ini
+; ./conf/php/acme-shop.ini
 
-opcache.preload=/app/config/preload.php
+memory_limit=512M
+date.timezone=Europe/Berlin
 ```
 
-Or pass it through FrankenPHP:
-
-```dotenv
-# ./.env
-
-FRANKENPHP_CONFIG=php_ini memory_limit 512M
-```
+The `-cli` and `-app-dev` containers read them from your working copy.
+An `-app` image reads them once it ships `./conf/php/`, see [your image](./your-image.md).

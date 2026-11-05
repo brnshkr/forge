@@ -2,6 +2,7 @@ import { env, fileURLToPath, spawn } from 'bun';
 import path from 'node:path';
 
 import { objectFromEntries, readOwnValue } from '#src/shared/utils/object';
+import { packageName } from '#src/shared/utils/package-json';
 import { readGroup } from '#src/shared/utils/pattern';
 
 import type { StringRecord } from '#src/shared/types/core';
@@ -20,8 +21,8 @@ export interface MakeVariableNames<TRequiredName extends string, TOptionalName e
 export const SHARED_MAKEFILE = fileURLToPath(import.meta.resolve('@brnshkr/config/conf/Makefile'));
 export const FORGE_DIRECTORY = path.resolve(import.meta.dirname, '../..');
 
-const PRINT_GOAL = '_forge-print-variables';
-const MISSING_INCLUDE_NOTICE = '_forge-missing-shared-makefile';
+const PRINT_GOAL = `_${packageName}-print-variables`;
+const MISSING_INCLUDE_NOTICE = `_${packageName}-missing-shared-makefile`;
 const PRINT_DEFINED_VARIABLE = '$(if $(filter undefined,$(origin $(NAME))),,$(info $(NAME)=$($(NAME))))';
 const createAssignmentPattern = (): RegExp => /^(?<name>[A-Z][\dA-Z_]*)=(?<value>.*)$/gmv;
 const createReferencePattern = (): RegExp => /\$\{(?<name>[A-Z][\dA-Z_]*)\}/gv;

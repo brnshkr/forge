@@ -37,6 +37,6 @@ runs:
         ARGUMENTS: ${{ inputs.arguments }}
         DOCKERFILE: ${{ inputs.dockerfile }}
       run: |
-        image=$(printf '%s\n' "$ARGUMENTS" | sed -n 's/^FORGE_BUILD_IMAGE=//p')
+        image=$(printf '%s\n' "$ARGUMENTS" | sed -n 's/^FORGE_APP_DEV_IMAGE=//p')
 
         docker run --rm --entrypoint cat "${image:?}" /usr/local/share/forge/app.Dockerfile >"$DOCKERFILE"

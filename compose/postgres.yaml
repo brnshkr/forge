@@ -1,19 +1,16 @@
 services:
   postgres:
-    image: ${POSTGRES_IMAGE:-${POSTGRES_REPOSITORY:-postgres}:${POSTGRES_TAG:?Set `POSTGRES_TAG` and `POSTGRES_IMAGE_DIGEST`, or `POSTGRES_IMAGE`.}@${POSTGRES_IMAGE_DIGEST:?Set `POSTGRES_TAG` and `POSTGRES_IMAGE_DIGEST`, or `POSTGRES_IMAGE`.}}
+    extends:
+      file: ./base.yaml
+      service: base
+    image: "${POSTGRES_IMAGE:-\
+      ${POSTGRES_REPOSITORY:-postgres}\
+      :${POSTGRES_TAG:?Set `POSTGRES_TAG` and `POSTGRES_IMAGE_DIGEST`, or `POSTGRES_IMAGE`.}\
+      @${POSTGRES_IMAGE_DIGEST:?Set `POSTGRES_TAG` and `POSTGRES_IMAGE_DIGEST`, or `POSTGRES_IMAGE`.}}"
     container_name: ${COMPOSE_PROJECT_NAME}-postgres
     user: postgres
-    restart: unless-stopped
-    logging:
-      driver: local
-    init: true
-    read_only: true
     mem_limit: ${POSTGRES_CONTAINER_MEMORY_LIMIT:-1g}
     pids_limit: ${POSTGRES_CONTAINER_PIDS_LIMIT:-256}
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}

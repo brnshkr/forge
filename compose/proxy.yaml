@@ -1,19 +1,20 @@
 services:
   proxy:
-    image: ${PROXY_IMAGE:-${PROXY_REPOSITORY:-${FORGE_REPOSITORY_OWNER:?Set it to the namespace of Forge's images, e.g. `ghcr.io/brnshkr`.}/forge-php-app}:${PROXY_TAG:?Set `PROXY_TAG` and `PROXY_IMAGE_DIGEST`, or `PROXY_IMAGE`.}@${PROXY_IMAGE_DIGEST:?Set `PROXY_TAG` and `PROXY_IMAGE_DIGEST`, or `PROXY_IMAGE`.}}
+    extends:
+      file: ./base.yaml
+      service: base
+    image: "${PROXY_IMAGE:-\
+      ${PROXY_REPOSITORY:-\
+      ${FORGE_IMAGE_NAMESPACE:-\
+      ${FORGE_NAMESPACE:?Set it to the namespace of Forge's images and fragments, e.g. `docker.io/brnshkr`.}}/forge-php}\
+      :${PROXY_TAG:?Set `PROXY_TAG` and `PROXY_IMAGE_DIGEST`, or `PROXY_IMAGE`.}-app\
+      @${PROXY_IMAGE_DIGEST:?Set `PROXY_TAG` and `PROXY_IMAGE_DIGEST`, or `PROXY_IMAGE`.}}"
     container_name: ${COMPOSE_PROJECT_NAME}-proxy
-    command: frankenphp run --config /etc/frankenphp/Caddyfile
-    restart: unless-stopped
-    logging:
-      driver: local
-    init: true
-    read_only: true
+    command: >-
+      frankenphp run
+      --config /etc/frankenphp/Caddyfile
     mem_limit: ${PROXY_CONTAINER_MEMORY_LIMIT:-256m}
     pids_limit: ${PROXY_CONTAINER_PIDS_LIMIT:-512}
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
     environment:
       CADDY_GLOBAL_OPTIONS: ~
       FORGE_HTTP_REDIRECT: 1
