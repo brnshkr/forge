@@ -106,6 +106,7 @@ jobs:
 
       - name: Run Checks
         env:
+          CI_JOB_ID: ${{ job.check_run_id }}
           COMMAND: ${{ inputs.check-command }}
         run: sh -c "$COMMAND"
 
@@ -231,6 +232,7 @@ jobs:
 
       - name: Run Row
         env:
+          CI_JOB_ID: ${{ job.check_run_id }}
           COMMAND: ${{ inputs.matrix-command }}
           ROW: ${{ matrix.row }}
         run: sh -c "$COMMAND"
