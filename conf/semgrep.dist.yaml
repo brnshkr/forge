@@ -15,6 +15,7 @@ x-brnshkr:
         - .github/workflows/bump.yaml
         - .github/workflows/check.yaml
         - .github/workflows/deploy.yaml
+        - .github/workflows/image.yaml
         - .github/workflows/publish.yaml
         - .github/workflows/reword.yaml
         - .github/workflows/security.yaml
