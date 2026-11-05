@@ -72,8 +72,8 @@ on:
         description: Registry username, defaults to the user that started the run
         required: false
 
-      REGISTRY_PASSWORD:
-        description: Registry password or token, defaults to the job's GitHub token
+      REGISTRY_TOKEN:
+        description: Registry token, defaults to the job's GitHub token
         required: false
 
 permissions:
@@ -107,7 +107,7 @@ jobs:
         with:
           registry: ${{ inputs.registry }}
           username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
-          password: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Restore Image Digest
         if: ${{ inputs.digest-key != '' }}

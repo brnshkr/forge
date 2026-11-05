@@ -146,8 +146,8 @@ on:
         description: Registry username, defaults to the user that started the run
         required: false
 
-      REGISTRY_PASSWORD:
-        description: Registry password or token, defaults to the job's GitHub token
+      REGISTRY_TOKEN:
+        description: Registry token, defaults to the job's GitHub token
         required: false
 
 concurrency:
@@ -225,5 +225,5 @@ jobs:
       MIRROR_REGISTRY_TOKEN: ${{ secrets.MIRROR_REGISTRY_TOKEN }}
       MIRROR_REGISTRY_USERNAME: ${{ secrets.MIRROR_REGISTRY_USERNAME }}
       PACKAGIST_USERNAME: ${{ secrets.PACKAGIST_USERNAME }}
-      REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+      REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
       REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
