@@ -59,7 +59,7 @@ RUN \
     fi
 
     if [ -f Makefile ] && make -n dist >/dev/null 2>&1; then
-      make dist
+      APP_ENV=prod make dist
     fi
 
     if [ -f composer.json ]; then

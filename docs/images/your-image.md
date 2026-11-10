@@ -28,8 +28,9 @@ It is built at `IMAGE_TARGET` from tracked files only.
 
 Without a Dockerfile of your own, Forge's Dockerfile builds it in two stages:
 
-1. On `FORGE_APP_DEV_IMAGE`: installs the Composer and Bun dependencies, runs `make dist` where your Makefile has it,
-   keeps production dependencies only, and runs `composer dump-env prod` for Symfony.
+1. On `FORGE_APP_DEV_IMAGE`: installs the Composer and Bun dependencies,
+   runs `APP_ENV=prod make dist` where your Makefile has it, keeps production dependencies only,
+   and runs `composer dump-env prod` for Symfony.
 2. On `FORGE_APP_IMAGE`: copies the result, owned by `forge`, and runs it as `www-data`.
 
 The image holds what your package archive ships: every path `.gitattributes` does not `export-ignore`,
