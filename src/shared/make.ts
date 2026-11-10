@@ -23,7 +23,9 @@ export const FORGE_DIRECTORY = path.resolve(import.meta.dirname, '../..');
 
 const PRINT_GOAL = `_${packageName}-print-variables`;
 const MISSING_INCLUDE_NOTICE = `_${packageName}-missing-shared-makefile`;
-const PRINT_DEFINED_VARIABLE = '$(if $(filter undefined,$(origin $(NAME))),,$(info $(NAME)=$($(NAME))))';
+const END_OF_VALUE = `_${packageName}-end-of-value`;
+const PRINT_VALUE = `$(info $(NAME)=$($(NAME)))$(info ${END_OF_VALUE})`;
+const PRINT_DEFINED_VARIABLE = `$(if $(filter undefined,$(origin $(NAME))),,${PRINT_VALUE})`;
 const createAssignmentPattern = (): RegExp => /^(?<name>[A-Z][\dA-Z_]*)=(?<value>.*)$/gmv;
 const createReferencePattern = (): RegExp => /\$\{(?<name>[A-Z][\dA-Z_]*)\}/gv;
 
@@ -124,7 +126,16 @@ export const readMakeAssignments = async (
     ])
     : includingOutput;
 
-  return readAssignments(standardOutput);
+  return objectFromEntries(standardOutput.split(`\n${END_OF_VALUE}\n`).flatMap((printedAssignment) => {
+    const groups = /^(?<name>[A-Z][\dA-Z_]*)=(?<value>.*)/msv.exec(printedAssignment)?.groups;
+
+    return groups === undefined
+      ? []
+      : [<const>[
+        readGroup(groups, 'name'),
+        readGroup(groups, 'value'),
+      ]];
+  }));
 };
 
 /**

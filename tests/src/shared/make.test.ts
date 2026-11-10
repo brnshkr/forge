@@ -14,6 +14,7 @@ import {
   readMakeList,
   readMakeVariables,
   resolveReferences,
+  SHARED_MAKEFILE,
 } from '#src/shared/make';
 
 import { objectFromEntries } from '#src/shared/utils/object';
@@ -109,6 +110,21 @@ describe('an assignment make resolves', () => {
 
     await expect(readMakeAssignments(directory, names)).resolves.toStrictEqual({
       ACME_SUFFIX: '',
+    });
+  });
+
+  it('keeps every line of a multi-line value', async () => {
+    const directory = await createRepository({
+      [MAKEFILE_NAME]: `include ${SHARED_MAKEFILE}\n\ndefine ACME_EXTENSIONS\n  intl\nACME_ZIP=zip\nendef\n`,
+    });
+
+    const names = [
+      'ACME_EXTENSIONS',
+      'ACME_ZIP',
+    ];
+
+    await expect(readMakeAssignments(directory, names)).resolves.toStrictEqual({
+      ACME_EXTENSIONS: '  intl\nACME_ZIP=zip',
     });
   });
 
