@@ -77,7 +77,7 @@ and nothing ties the fragment to its image's release the way `FORGE_TAG` does.
 | [`valkey`](./valkey.md) | `valkey` | `VALKEY` | — |
 | [`mailpit`](./mailpit.md) | `mailpit` | `MAILPIT` | `MAILPIT_MAX_MESSAGES`, `MAILPIT_SMTP_PORT`, `MAILPIT_WEB_PORT` |
 | [`proxy`](../deploy/zero-downtime.md) | `proxy` | `PROXY` | — |
-| [`node`, `semgrep`, `hadolint`, `actionlint`](./tools.md) | the same name | the same name in capitals | — |
+| [`node`, `semgrep`, `hadolint`, `actionlint`, `shellcheck`](./tools.md) | the same name | the same name in capitals | — |
 
 The prefix names what runs. `php-` runs FrankenPHP, `bun-` runs Bun, and `cli` runs only the tools.
 A `-dev` fragment runs your working copy on the `-app-dev` image.

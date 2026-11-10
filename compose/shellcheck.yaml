@@ -1,0 +1,22 @@
+services:
+  shellcheck:
+    extends:
+      file: ./base.yaml
+      service: base
+    image: "${SHELLCHECK_IMAGE:-\
+      ${SHELLCHECK_REPOSITORY:-koalaman/shellcheck}\
+      :${SHELLCHECK_TAG:?Set `SHELLCHECK_TAG` and `SHELLCHECK_IMAGE_DIGEST`, or `SHELLCHECK_IMAGE`.}\
+      @${SHELLCHECK_IMAGE_DIGEST:?Set `SHELLCHECK_TAG` and `SHELLCHECK_IMAGE_DIGEST`, or `SHELLCHECK_IMAGE`.}}"
+    entrypoint: []
+    profiles:
+      - shellcheck
+    working_dir: /app
+    user: ${HOST_UID:-1000}:${HOST_GID:-1000}
+    mem_limit: ${SHELLCHECK_CONTAINER_MEMORY_LIMIT:-256m}
+    pids_limit: ${SHELLCHECK_CONTAINER_PIDS_LIMIT:-256}
+    environment:
+      HOME: /tmp
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=64m
+    volumes:
+      - ${HOST_APP_DIR:-${PWD}}:/app:ro

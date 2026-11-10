@@ -1,6 +1,6 @@
 # 🧰 Tools [🔍](../../compose/ 'Go to source')
 
-`node`, `semgrep`, `hadolint`, and `actionlint` run one tool each, from its upstream image.
+`node`, `semgrep`, `hadolint`, `actionlint`, and `shellcheck` run one tool each, from its upstream image.
 
 ## Usage
 
@@ -22,7 +22,8 @@ FORGE_SEMGREP_FRAGMENT_DIGEST=sha256:<digest> # <version>
 
 Each fragment sits behind a profile named like it. `docker compose up` leaves it out.
 [🛠️ `make`](https://github.com/brnshkr/config/blob/master/docs/Makefile.md) starts it for its target.
-The `-cli` and `-cli-chromium` images already carry hadolint and actionlint. A project on them needs neither fragment.
+The `-cli` and `-cli-chromium` images already carry hadolint, actionlint, and ShellCheck.
+A project on them needs none of those fragments.
 
 | Fragment | Image | Mounts `/app` |
 | --- | --- | --- |
@@ -30,6 +31,7 @@ The `-cli` and `-cli-chromium` images already carry hadolint and actionlint. A p
 | `semgrep` | `semgrep/semgrep` | read-write |
 | `hadolint` | `hadolint/hadolint` | read-only |
 | `actionlint` | `rhysd/actionlint` | read-only |
+| `shellcheck` | `koalaman/shellcheck` | read-only |
 
 Each runs as `HOST_UID` and `HOST_GID` with its home in `/tmp`.
 
@@ -47,6 +49,7 @@ docker compose --env-file ./.env --file ./conf/compose.yaml run --rm semgrep sem
 | `SEMGREP_CONTAINER_MEMORY_LIMIT` | how much memory `semgrep` may use |
 | `HADOLINT_CONTAINER_MEMORY_LIMIT` | how much memory `hadolint` may use |
 | `ACTIONLINT_CONTAINER_MEMORY_LIMIT` | how much memory `actionlint` may use |
+| `SHELLCHECK_CONTAINER_MEMORY_LIMIT` | how much memory `shellcheck` may use |
 | every `<TOOL>_CONTAINER_PIDS_LIMIT` | how many processes each tool may start |
 
 The defaults are in the [fragment files](../../compose).
