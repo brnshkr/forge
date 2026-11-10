@@ -95,8 +95,8 @@ then copy the starter Makefile and let it write the rest:
 export FORGE_NAMESPACE=docker.io/brnshkr HOST_UID=$(id -u) HOST_GID=$(id -g)
 
 docker compose --env-file ./.env --file ./conf/compose.yaml run --rm bun-app bun a -D -E @brnshkr/config
-cp -v ./node_modules/@brnshkr/config/conf/Makefile.dist ./Makefile
-make startup
+cp -v ./node_modules/@brnshkr/config/conf/Makefile.dist ./Makefile \
+  && make startup
 ```
 
 From now on the Makefile sets the variables above and runs every tool in `bun-app`.

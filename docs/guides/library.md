@@ -60,8 +60,8 @@ export FORGE_NAMESPACE=docker.io/brnshkr HOST_UID=$(id -u) HOST_GID=$(id -g)
 
 docker compose --env-file ./.env --file ./conf/compose.yaml run --rm cli bun a -D -E @brnshkr/config
 docker compose --env-file ./.env --file ./conf/compose.yaml run --rm cli composer r --dev brnshkr/config
-cp -v ./node_modules/@brnshkr/config/conf/Makefile.dist ./Makefile
-make startup
+cp -v ./node_modules/@brnshkr/config/conf/Makefile.dist ./Makefile \
+  && make startup
 ```
 
 Drop the install line of a stack your library doesn't use.
