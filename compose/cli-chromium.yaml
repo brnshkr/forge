@@ -3,6 +3,7 @@ services:
     extends:
       file: ./base.yaml
       service: base
+    restart: no
     image: "${FORGE_CLI_CHROMIUM_IMAGE:-\
       ${FORGE_IMAGE_NAMESPACE:-\
       ${FORGE_NAMESPACE:?Set it to the namespace of Forge's images and fragments, e.g. `docker.io/brnshkr`.}}\
@@ -31,7 +32,14 @@ services:
       XDG_CONFIG_HOME: /app/.cache/xdg.cache
       XDG_DATA_HOME: /app/.cache/xdg.cache
     healthcheck:
-      disable: true
+      test:
+        - CMD-SHELL
+        - ls -A /app | grep -q .
+      interval: 10s
+      timeout: 3s
+      retries: 1
+      start_period: 10s
+      start_interval: 1s
     tmpfs:
       - /tmp:rw,nosuid,nodev,size=512m
       - /run:rw,nosuid,nodev,size=32m

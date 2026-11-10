@@ -81,7 +81,17 @@ const SERVER_PORT_SCENARIOS = [
   },
 ];
 
+const DEVELOPMENT_FRAGMENT_FILES = new Set([
+  'compose/cli-chromium.yaml',
+  'compose/cli.yaml',
+  ...DEVELOPMENT_TWIN_FRAGMENT_FILES,
+]);
+
 const FRAGMENT_SCENARIOS = FRAGMENT_FILES.map((fragmentFile) => ({
+  fragmentFile,
+}));
+
+const DEVELOPMENT_FRAGMENT_SCENARIOS = [...DEVELOPMENT_FRAGMENT_FILES].map((fragmentFile) => ({
   fragmentFile,
 }));
 
@@ -158,6 +168,18 @@ describe('a published fragment', () => {
     expect(fragment).not.toContain('HOST_APP_DIR');
     expect(fragment).toMatch(/- \$\{FORGE_CACHE_DIR:-\/app\/var\/cache\}:rw,nosuid,nodev,.*,uid=\$\{RUNTIME_USER_UID:-33\},gid=\$\{RUNTIME_USER_GID:-33\},mode=0700$/mv);
     expect(fragment).toContain(`- forge-var:\${FORGE_VAR_DIR:-/app/var}`);
+  });
+
+  it.each(FRAGMENT_SCENARIOS)('$fragmentFile stays down after Docker restarts only where it develops on the checkout', async (scenario) => {
+    const fragment = await readRepositoryFile(scenario.fragmentFile);
+
+    expect(fragment.includes('restart: no\n')).toBe(DEVELOPMENT_FRAGMENT_FILES.has(scenario.fragmentFile));
+  });
+
+  it.each(DEVELOPMENT_FRAGMENT_SCENARIOS)('$fragmentFile reports an empty checkout as unhealthy', async (scenario) => {
+    const fragment = await readRepositoryFile(scenario.fragmentFile);
+
+    expect(fragment).toMatch(/^ {4}healthcheck:\n {6}test:\n {8}- CMD-SHELL\n {8}- (?:>-\n {10})?ls -A \/app \| grep -q \.(?: \\)?$/mv);
   });
 });
 

@@ -3,6 +3,7 @@ services:
     extends:
       file: ./base.yaml
       service: base
+    restart: no
     image: "${FORGE_APP_DEV_IMAGE:-\
       ${FORGE_IMAGE_NAMESPACE:-\
       ${FORGE_NAMESPACE:?Set it to the namespace of Forge's images and fragments, e.g. `docker.io/brnshkr`.}}\
@@ -33,12 +34,12 @@ services:
       XDG_DATA_HOME: /app/.cache/xdg.cache
     healthcheck:
       test:
-        - CMD
-        - bun
-        - -e
+        - CMD-SHELL
         - >-
-          fetch('http://127.0.0.1:80/').then((response) =>
-          process.exit(response.status >= 500 ? 1 : 0)).catch(() => process.exit(1))
+          ls -A /app | grep -q . \
+            && bun -e "fetch('http://127.0.0.1:80/')
+              .then((response) => process.exit(response.status >= 500 ? 1 : 0))
+              .catch(() => process.exit(1))"
       interval: 10s
       timeout: 3s
       retries: 10

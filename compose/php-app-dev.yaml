@@ -3,6 +3,7 @@ services:
     extends:
       file: ./base.yaml
       service: base
+    restart: no
     image: "${FORGE_APP_DEV_IMAGE:-\
       ${FORGE_IMAGE_NAMESPACE:-\
       ${FORGE_NAMESPACE:?Set it to the namespace of Forge's images and fragments, e.g. `docker.io/brnshkr`.}}\
@@ -58,10 +59,10 @@ services:
       XDG_DATA_HOME: /app/.cache/xdg.cache
     healthcheck:
       test:
-        - CMD
-        - php
-        - -r
-        - "exit(@file_get_contents('http://127.0.0.1:2019/metrics') === false ? 1 : 0);"
+        - CMD-SHELL
+        - >-
+          ls -A /app | grep -q . \
+            && php -r "exit(@file_get_contents('http://127.0.0.1:2019/metrics') === false ? 1 : 0);"
       interval: 10s
       timeout: 3s
       retries: 10

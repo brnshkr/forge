@@ -122,6 +122,10 @@ Every fragment extends the service `base` in [`./compose/base.yaml`](../../compo
 | `cap_drop` | `ALL` |
 | `security_opt` | `no-new-privileges:true` |
 
+`cli`, `cli-chromium`, and the `-dev` fragments set `restart: no` instead.
+After a Docker restart your checkout may not be mounted yet, so they stay down until a `make` command starts them.
+Their health check fails while `/app` is empty.
+
 A container writes only to its volumes, `/tmp`, and `/run`.
 Both live in memory, with a size cap set in each fragment file.
 Each container also has a memory limit and a process limit, listed on its page.
