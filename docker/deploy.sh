@@ -2291,6 +2291,25 @@ start_application() {
   fail "\`$APPLICATION_SERVICE\` of \`$release_name\` did not become healthy on \`$host_entry\`."
 }
 
+print_header_defaults() {
+  frame_options=$1
+
+  cat <<CADDYFILE
+		handle_response {
+			header ?X-Frame-Options "$frame_options"
+			header ?X-Content-Type-Options "nosniff"
+			header ?Referrer-Policy "strict-origin"
+			header ?Strict-Transport-Security "max-age=31536000"
+			header ?Cross-Origin-Opener-Policy "same-origin"
+			header ?Cross-Origin-Resource-Policy "same-origin"
+
+			copy_response
+		}
+CADDYFILE
+
+  return 0
+}
+
 write_site() {
   host_entry=$1
   server_name=$(get_value "$TARGET_VALUES_FILE" SERVER_NAME)
@@ -2312,6 +2331,8 @@ $server_name {
 
 	reverse_proxy $PROJECT_NAME-app:80 {
 		lb_try_duration 10s
+
+$(print_header_defaults DENY)
 	}
 }
 CADDYFILE
@@ -2332,7 +2353,9 @@ $mailpit_server_name {
 		-X-Powered-By
 	}
 
-	reverse_proxy $mailpit_project-mailpit:8025
+	reverse_proxy $mailpit_project-mailpit:8025 {
+$(print_header_defaults SAMEORIGIN)
+	}
 }
 CADDYFILE
     fi

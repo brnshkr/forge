@@ -1207,6 +1207,10 @@ describe('a deploy behind the proxy', () => {
     expect(valkeyCompose).toContain('  valkey:');
     expect(site).toContain('acme-shop.example {');
     expect(site).toContain('reverse_proxy acme-shop-app:80 {');
+    expect(site).toContain('\t\thandle_response {\n\t\t\theader ?X-Frame-Options "DENY"\n');
+    expect(site).toContain('\t\t\theader ?Strict-Transport-Security "max-age=31536000"\n');
+    expect(site).toContain('\t\t\tcopy_response\n');
+    expect(site).not.toContain('Content-Security-Policy');
     expect(releaseOverride).toContain('          - acme-shop-app\n      forge-shared-data: {}\n    ports: !reset []\n');
     expect(releaseOverride).toContain('  php-worker:\n    networks:\n      default: {}\n      forge-shared-data: {}\n');
     expect(sharedOverride).toContain('networks:\n  default:\n    name: forge-shared-data\n    external: true\n');
@@ -2064,6 +2068,34 @@ describe('a Mailpit behind the proxy', () => {
 
     expect(deployRun.exitCode).toBe(scenario.exitCode);
     expect(deployRun.standardError).toBe(scenario.message.split('@SHARED@').join(deployment.getRemotePath('forge-shared')));
+  });
+
+  it('gets the security headers it does not send, framing only its own pages', async () => {
+    const deployment = await createDeployment({
+      files: {
+        '.dotenv-mailpit': 'MP_UI_AUTH=alice:secret\n',
+        '.env.staging': `${PROJECT_FILES['.env.production']}DEPLOY_SHARED_SERVICES=mailpit\n`
+          + 'MAILPIT_SERVER_NAME=mail.acme-shop.example\n',
+      },
+      template: `${PROXY_TEMPLATE}  mailpit:\n    image: ${MAILPIT_IMAGE}\n`,
+    });
+
+    const deployRun = await deployment.run(
+      'deploy',
+      {
+        DEPLOY_DOTENV_MAILPIT_FILE: '.dotenv-mailpit',
+        DEPLOY_HOSTS: 'one',
+        DEPLOY_PATH: deployment.getRemotePath('acme-shop'),
+        DEPLOY_SHARED_PATH: deployment.getRemotePath('forge-shared'),
+        VERSION: '1.0.0',
+      },
+      'staging',
+    );
+
+    const site = await file(deployment.getServerPath('one', 'forge-shared/sites/acme-shop-staging.caddyfile')).text();
+
+    expect(deployRun.exitCode).toBe(0);
+    expect(site).toMatch(/^\treverse_proxy [\-a-z]+-mailpit:8025 \{\n\t{2}handle_response \{\n\t{3}header \?X-Frame-Options "SAMEORIGIN"$/mv);
   });
 });
 

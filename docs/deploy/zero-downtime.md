@@ -22,7 +22,8 @@ FORGE_PROXY_FRAGMENT_DIGEST=sha256:<digest> # <version>
 
 The proxy owns ports 80 and 443 and every project's certificates on the server, in the shared project `forge-shared`.
 It routes `SERVER_NAME` to your application at `<COMPOSE_PROJECT_NAME>-app` and passes its headers through.
-It drops only `Server`, `Via`, and `X-Powered-By`.
+It drops `Server`, `Via`, and `X-Powered-By`, and adds the [web server's](../images/web-server.md) security headers
+your application does not send, except `Content-Security-Policy` and `Permissions-Policy`.
 
 Your application then publishes no port and serves plain HTTP.
 A deploy starts the new release beside the old one, moves traffic once the new one is healthy, then stops the old one.
