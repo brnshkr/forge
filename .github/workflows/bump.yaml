@@ -178,11 +178,13 @@ jobs:
 
           git apply --index "$RUNNER_TEMP/bump.patch"
 
+          title='chore(deps): bump versions'
+
           bun --bun ./.cache/forge.cache/bin/commit-changes.ts \
             --branch="$BRANCH" \
-            --message='chore(deps): bump versions' \
+            --message="$title" \
             >/dev/null
 
-          if ! gh pr create --fill --head "$BRANCH" --body "$CHANGES"; then
+          if ! gh pr create --head "$BRANCH" --title "$title" --body "$CHANGES"; then
             gh pr edit "$BRANCH" --body "$CHANGES"
           fi
