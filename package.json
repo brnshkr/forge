@@ -87,13 +87,16 @@
     "dev",
     "brnshkr",
     "forge",
-    "ci",
-    "docker",
-    "image",
     "bun",
-    "frankenphp",
+    "caddy",
+    "ci",
     "compose",
+    "deploy",
+    "docker",
+    "frankenphp",
     "github-actions",
+    "image",
+    "php",
     "release"
   ]
 }
