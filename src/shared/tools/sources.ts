@@ -1,15 +1,23 @@
 import { createHash } from 'node:crypto';
 
-import { fetchJson, fetchOk, REGISTRIES } from '#src/shared/registry';
+import {
+  fetchJson,
+  fetchOk,
+  fetchTags,
+  REGISTRIES,
+} from '#src/shared/registry';
 
 import {
+  createUpstreamReferences,
   getBumpLevel,
   getLatestVersion,
+  getVersionName,
   getVersionsWithMinors,
   readPinValue,
+  readUpstreamReference,
 } from '#src/shared/tools/versions';
 
-import { objectEntries, objectFromEntries } from '#src/shared/utils/object';
+import { objectEntries, objectFromEntries, objectKeys } from '#src/shared/utils/object';
 
 import type { Registries } from '#src/shared/registry';
 import type { PinName, Versions } from '#src/shared/tools/versions';
@@ -82,6 +90,33 @@ const fetchGitHubVersions = async (repository: string, context: SourceContext): 
 /**
  * @rejects {Error}
  */
+const fetchPublishedGitHubVersions = async (
+  name: PinName,
+  repository: string,
+  pinnedVersions: Versions,
+  context: SourceContext,
+): Promise<string[]> => {
+  const releasedVersions = await fetchGitHubVersions(repository, context);
+  const digestName = objectKeys(createUpstreamReferences(pinnedVersions)).find((key) => getVersionName(key) === name);
+
+  if (digestName === undefined) {
+    return releasedVersions;
+  }
+
+  const publishedTags = new Set(await fetchTags(
+    readUpstreamReference(pinnedVersions, digestName),
+    context.sources.registries,
+  ));
+
+  return releasedVersions.filter((version) => publishedTags.has(readUpstreamReference({
+    ...pinnedVersions,
+    [name]: version,
+  }, digestName).tag));
+};
+
+/**
+ * @rejects {Error}
+ */
 const fetchPhpVersions = async (suite: string, context: SourceContext): Promise<string[]> => {
   const tagPage = <DockerHubTagPage>(await fetchJson(
     `${context.sources.dockerHubUrl}/v2/repositories/library/php/tags?page_size=${String(PAGE_SIZE)}&name=cli-${suite}`,
@@ -108,7 +143,12 @@ export const resolveVersions = async (pinnedVersions: Versions, context: SourceC
     <const>['PHP_VERSION', fetchPhpVersions(pinnedVersions.DEBIAN_SUITE, context)],
     ...objectEntries(GITHUB_REPOSITORIES).map(([name, repository]) => <const>[
       name,
-      fetchGitHubVersions(repository, context),
+      fetchPublishedGitHubVersions(
+        name,
+        repository,
+        pinnedVersions,
+        context,
+      ),
     ]),
   ];
 

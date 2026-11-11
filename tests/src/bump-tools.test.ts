@@ -8,8 +8,17 @@ import { main } from '#src/bump-tools';
 import { shortenDigest } from '#src/shared/pins/digests';
 import { DOCKER_HUB } from '#src/shared/registry';
 import { GITHUB_REPOSITORIES } from '#src/shared/tools/sources';
+import { createUpstreamReferences, getVersionName, readUpstreamReference } from '#src/shared/tools/versions';
 import { STATUS_CODE } from '#src/shared/utils/http';
-import { objectEntries, objectFromEntries, objectValues } from '#src/shared/utils/object';
+
+import {
+  objectEntries,
+  objectFromEntries,
+  objectKeys,
+  objectValues,
+  readOwnValue,
+} from '#src/shared/utils/object';
+
 import { createDigest } from '#tests/support/digest';
 import { toReference } from '#tests/support/dotenv';
 import { captureWrites } from '#tests/support/output';
@@ -24,6 +33,7 @@ import type { VersionSources } from '#src/shared/tools/sources';
 interface UpstreamAnswers {
   readonly gitHubVersions: ReadonlyMap<string, readonly string[]>;
   readonly phpVersions: readonly string[];
+  readonly unpublishedTags?: ReadonlySet<string>;
 }
 
 interface FakeUpstream {
@@ -57,6 +67,29 @@ const createPinsText = (stalePins: Readonly<Record<string, string>>): string => 
 })
   .map(([name, value]) => `${name}=${value}\n`)
   .join('');
+
+const listPublishedTags = (
+  registryPath: string,
+  releasesByRepository: ReadonlyMap<string, readonly string[]>,
+  unpublishedTags: ReadonlySet<string>,
+): string[] => {
+  const repository = registryPath.slice('/v2/'.length, registryPath.indexOf('/tags/list'));
+  const versions = createVersions(DIGEST, CHECKSUM);
+
+  return objectKeys(createUpstreamReferences(versions))
+    .filter((digestName) => readUpstreamReference(versions, digestName).repository === repository)
+    .flatMap((digestName) => {
+      const versionName = getVersionName(digestName);
+      const releaseRepository = readOwnValue(<Readonly<Record<string, string>>>GITHUB_REPOSITORIES, versionName) ?? '';
+      const releases = releasesByRepository.get(releaseRepository) ?? [];
+
+      return releases.map((release) => readUpstreamReference({
+        ...versions,
+        [versionName]: release.replace(/^(?:bun-)?v/v, ''),
+      }, digestName).tag);
+    })
+    .filter((tag) => !unpublishedTags.has(tag));
+};
 
 const serveUpstream = (answers: UpstreamAnswers): FakeUpstream => {
   const authorizations: string[] = [];
@@ -105,7 +138,11 @@ const serveUpstream = (answers: UpstreamAnswers): FakeUpstream => {
       dockerHubUrl: url.origin,
       gitHubApiUrl: url.origin,
       gitHubUrl: url.origin,
-      registries: serveRegistry(() => createDigestResponse(DIGEST)).registries,
+      registries: serveRegistry((registryPath) => (registryPath.includes('/tags/list')
+        ? Response.json({
+          tags: listPublishedTags(registryPath, releasesByRepository, answers.unpublishedTags ?? new Set()),
+        })
+        : createDigestResponse(DIGEST))).registries,
     },
   };
 };
@@ -222,6 +259,42 @@ describe('the bump-tools script', () => {
     expect(standardOutputWrites).toStrictEqual(scenario.moves);
 
     expect(new Set(upstream.authorizations)).toStrictEqual(new Set(['Bearer acme-token']));
+  });
+
+  it('moves an image pin only to the newest version its registry publishes', async () => {
+    const upstream = serveUpstream({
+      gitHubVersions: new Map([
+        [
+          'nodejs/node',
+          [
+            'v1.1.0',
+            'v1.0.1',
+          ],
+        ],
+      ]),
+      phpVersions: [],
+      unpublishedTags: new Set(['1.1.0-acme']),
+    });
+
+    const directory = await createRepository({
+      '.env': createPinsText({}),
+    });
+
+    const pinsFile = path.join(directory, '.env');
+    const standardOutputWrites = captureWrites(process.stdout);
+
+    await expect(main(
+      [],
+      NO_RELEASE_AGE,
+      pinsFile,
+      upstream.sources,
+    )).resolves.toBe(0);
+
+    await expect(file(pinsFile).text()).resolves.toBe(createPinsText({
+      NODE_VERSION: '1.0.1',
+    }));
+
+    expect(standardOutputWrites).toStrictEqual(['NODE_VERSION: 1.0.0 -> 1.0.1\n']);
   });
 
   it('fails, naming the file, where it cannot write the pins', async () => {
