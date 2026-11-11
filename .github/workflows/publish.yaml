@@ -258,9 +258,10 @@ jobs:
       - image
       - image-second-wave
     if: >-
-      ${{ fromJSON(needs.targets.outputs.release).version != ''
+      ${{ !cancelled() && needs.image.result == 'success' && needs.image-second-wave.result != 'failure'
+        && (fromJSON(needs.targets.outputs.release).version != ''
         || (startsWith(github.ref, 'refs/heads/dev/') && fromJSON(needs.targets.outputs.deploy).testing != null
-        && !contains(fromJSON(inputs.skip), 'testing') && !contains(fromJSON(inputs.skip), 'deploy')) }}
+        && !contains(fromJSON(inputs.skip), 'testing') && !contains(fromJSON(inputs.skip), 'deploy'))) }}
     runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
     environment: registry
     permissions:
