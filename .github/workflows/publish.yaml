@@ -961,7 +961,7 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --title "v$VERSION" \
-            --notes "${NOTES:-No release notes.}" \
+            --notes "${NOTES:-No release notes}" \
             "$@"
 
       - name: Attach Packages
