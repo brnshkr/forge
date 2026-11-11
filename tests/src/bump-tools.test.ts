@@ -431,6 +431,7 @@ describe('the bump-tools script', () => {
       'bump-tools': new Set([
         `${DOCKER_HUB}/library/node:1.1.0-acme@${DIGEST}`,
         `${DOCKER_HUB}/oven/bun:1.0.0-debian@${DIGEST}`,
+        `${DOCKER_HUB}/semgrep/semgrep:1.1.0-nonroot@${DIGEST}`,
         `hadolint/hadolint/releases/download/v1.0.0/hadolint-Linux-x86_64@${CHECKSUM}`,
         `rhysd/actionlint/releases/download/v1.1.0/actionlint_1.1.0_linux_amd64.tar.gz@${CHECKSUM}`,
         'composer/composer:1.0.1',

@@ -160,7 +160,7 @@ export const getCandidateSelection = (
 
   return {
     reference: agedSighting[0],
-    sightings: objectFromEntries(sightings.filter((sighting) => compareSightings(sighting, agedSighting) > 0)),
+    sightings: objectFromEntries(sightings.filter((sighting) => compareSightings(sighting, agedSighting) >= 0)),
   };
 };
 

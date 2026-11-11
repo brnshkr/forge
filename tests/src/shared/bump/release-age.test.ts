@@ -97,9 +97,24 @@ describe('the minimum release age', () => {
 });
 
 describe('the candidate a release age selects', () => {
-  it('is the newest one seen for the full age, keeping only the sightings after it', () => {
+  it('is the newest one old enough, and stays recorded until it is pinned', () => {
     expect(getCandidateSelection(createSearch(NEWEST_CANDIDATE), RELEASE_AGE, isRelevant)).toStrictEqual({
       reference: AGED_CANDIDATE,
+      sightings: {
+        [AGED_CANDIDATE]: '1970-01-01T00:01:00.000Z',
+        [NEWEST_CANDIDATE]: NOW,
+      },
+    });
+  });
+
+  it('is the newest one at once where the age is zero', () => {
+    const releaseAge = <const>{
+      ...RELEASE_AGE,
+      minimumAgeSeconds: 0,
+    } satisfies ReleaseAge;
+
+    expect(getCandidateSelection(createSearch(NEWEST_CANDIDATE), releaseAge, isRelevant)).toStrictEqual({
+      reference: NEWEST_CANDIDATE,
       sightings: {
         [NEWEST_CANDIDATE]: NOW,
       },
@@ -122,11 +137,6 @@ describe('the candidate a release age selects', () => {
   });
 
   it.each([
-    {
-      name: 'is the newest one at once where the age is zero',
-      candidateReference: NEWEST_CANDIDATE,
-      minimumAgeSeconds: 0,
-    },
     {
       name: 'is the pin itself where nothing newer exists',
       candidateReference: PINNED_REFERENCE,

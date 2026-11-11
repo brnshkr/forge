@@ -441,7 +441,10 @@ describe('the bump-images script', () => {
     ]);
 
     await expect(readSeenReferences(seenFile)).resolves.toStrictEqual({
-      'bump-images': new Set([`valkey/valkey:1.1-acme@${NEW_DIGEST}`]),
+      'bump-images': new Set([
+        `postgres:1.2-acme@${NEW_DIGEST}`,
+        `valkey/valkey:1.1-acme@${NEW_DIGEST}`,
+      ]),
       'bump-tools': new Set([TOOLS_SIGHTING]),
     });
   });
