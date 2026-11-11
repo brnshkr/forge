@@ -933,8 +933,6 @@ jobs:
       ${{ !cancelled() && needs.tag.result == 'success'
         && !contains(fromJSON(inputs.skip), 'release') && !contains(fromJSON(inputs.skip), 'publish') }}
     runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
-    permissions:
-      contents: write
     steps:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -942,9 +940,17 @@ jobs:
           ref: v${{ fromJSON(needs.targets.outputs.release).version }}
           persist-credentials: false
 
+      - name: Act As Bot
+        id: bot
+        uses: $/.github/actions/bot
+        with:
+          client-id: ${{ secrets.BOT_CLIENT_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
+          permission-contents: write
+
       - name: Create GitHub Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.bot.outputs.token }}
           IS_PRERELEASE: ${{ fromJSON(needs.targets.outputs.release).isPrerelease }}
           NOTES: ${{ needs.changelog.outputs.notes }}
           VERSION: ${{ fromJSON(needs.targets.outputs.release).version }}
@@ -967,7 +973,7 @@ jobs:
       - name: Attach Packages
         env:
           CHANGELOG_DIRECTORY: ${{ needs.changelog.outputs.directory }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.bot.outputs.token }}
           NPM_PACKAGE: ${{ !contains(fromJSON(inputs.skip), 'npm') && fromJSON(needs.targets.outputs.release).npm || '' }}
           PACKAGIST_PACKAGE: ${{ fromJSON(needs.targets.outputs.release).packagist }}
           VERSION: ${{ fromJSON(needs.targets.outputs.release).version }}
