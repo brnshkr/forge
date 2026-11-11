@@ -139,6 +139,7 @@ jobs:
     name: Resolve Targets
     runs-on: ${{ inputs.runner || vars.RUNNER_IMAGE }}
     outputs:
+      apt-upgrade-date: ${{ steps.targets.outputs.apt-upgrade-date }}
       buildkit: ${{ steps.buildkit.outputs.image }}
       deploy: ${{ steps.targets.outputs.deploy }}
       first-wave-images: ${{ steps.targets.outputs.first-wave-images }}
@@ -176,7 +177,10 @@ jobs:
             --group-image-builds="$GROUP_IMAGE_BUILDS" \
             >>"$GITHUB_OUTPUT"
 
-          echo "testing-version=dev-$(printf '%.7s' "$GITHUB_SHA")" >>"$GITHUB_OUTPUT"
+          {
+            echo "testing-version=dev-$(printf '%.7s' "$GITHUB_SHA")"
+            echo "apt-upgrade-date=$(date -u +%F)"
+          } >>"$GITHUB_OUTPUT"
 
       - name: Detect Pages
         id: pages
@@ -228,6 +232,7 @@ jobs:
       runner: ${{ inputs.runner }}
       images: ${{ needs.targets.outputs.first-wave-images }}
       buildkit: ${{ needs.targets.outputs.buildkit }}
+      apt-upgrade-date: ${{ needs.targets.outputs.apt-upgrade-date }}
       version: ${{ fromJSON(needs.targets.outputs.release).version }}
 
   image-second-wave:
@@ -243,6 +248,7 @@ jobs:
       runner: ${{ inputs.runner }}
       images: ${{ needs.targets.outputs.second-wave-images }}
       buildkit: ${{ needs.targets.outputs.buildkit }}
+      apt-upgrade-date: ${{ needs.targets.outputs.apt-upgrade-date }}
       version: ${{ fromJSON(needs.targets.outputs.release).version }}
 
   digest:
@@ -311,7 +317,9 @@ jobs:
           context: ./.cache/image.context
           file: ${{ matrix.dockerfile }}
           target: ${{ matrix.target }}
-          build-args: ${{ matrix.arguments }}
+          build-args: |
+            ${{ matrix.arguments }}
+            APT_UPGRADE_DATE=${{ needs.targets.outputs.apt-upgrade-date }}
           outputs: >-
             type=image,name=${{ steps.metadata.outputs.repository }},push-by-digest=true,name-canonical=true,push=true
           labels: ${{ steps.metadata.outputs.labels }}

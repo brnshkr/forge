@@ -51,6 +51,7 @@ services:
         - RUNTIME_USER_GID
         - EXTRA_APT_PACKAGES
         - EXTRA_PHP_EXTENSIONS
+        - APT_UPGRADE_DATE
       labels:
         org.opencontainers.image.version: ${IMAGE_VERSION}
         org.opencontainers.image.revision: ${IMAGE_REVISION}

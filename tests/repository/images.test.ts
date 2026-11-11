@@ -156,6 +156,18 @@ describe('build arguments', () => {
   });
 });
 
+describe('the package upgrade', () => {
+  it.each(DOCKERFILE_SCENARIOS)('$dockerfile reruns in a stage that takes the day it runs on', (scenario) => {
+    const upgradingStages = readDockerfile(scenario.dockerfile)
+      .split(/^FROM /mv)
+      .filter((stage) => stage.includes('apt-get upgrade'));
+
+    for (const stage of upgradingStages) {
+      expect(stage.slice(0, stage.indexOf('apt-get upgrade'))).toContain('\nARG APT_UPGRADE_DATE=\n');
+    }
+  });
+});
+
 describe('the escape hatch', () => {
   it.each(DOCKERFILE_SCENARIOS)('$dockerfile adds nothing of its own to what a consumer appends', (scenario) => {
     const additiveArguments = scenario.dockerfile === BUN_DOCKERFILE

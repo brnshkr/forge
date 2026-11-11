@@ -18,6 +18,11 @@ on:
         required: true
         type: string
 
+      apt-upgrade-date:
+        description: Day the package upgrade runs for, so the cached upgrade layer rebuilds once a day
+        required: true
+        type: string
+
       version:
         description: Version the images are labeled with, empty outside a release
         required: false
@@ -82,7 +87,9 @@ jobs:
           context: ./.cache/image.context
           file: ${{ matrix.dockerfile }}
           target: ${{ matrix.target }}
-          build-args: ${{ matrix.arguments }}
+          build-args: |
+            ${{ matrix.arguments }}
+            APT_UPGRADE_DATE=${{ inputs.apt-upgrade-date }}
           load: true
           tags: ${{ env.LOCAL_TAG }}
           labels: ${{ steps.metadata.outputs.labels }}
