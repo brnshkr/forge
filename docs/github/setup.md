@@ -24,6 +24,8 @@ actions/cache/restore@*, actions/cache/save@*, actions/cache@*, actions/checkout
 | `RUNNER_IMAGE` | always, unless you pass `runner` | which runner every job runs on |
 | `MINIMUM_RELEASE_AGE` | optional | how long a new version waits before the bump takes it, unless `.env` sets it |
 | `MIRROR_REGISTRY`, `MIRROR_NAMESPACE` | optional | where every release is mirrored, see [publishing](./publishing.md) |
+| `MIRROR_REGISTRY_USERNAME` | for a mirror | your user on the mirror registry |
+| `REGISTRY_USERNAME` | optional | your user on a registry other than GHCR |
 | `DEPLOY_KNOWN_HOSTS` | for a deploy | the servers' host keys, see [deploying](./deploying.md) |
 
 ```sh

@@ -28,7 +28,7 @@ jobs:
 
 Images and Compose fragments go to `ghcr.io/<owner>`, or to `ghcr.io/acme-images` with the `namespace` above.
 A fragment is named after your repository, e.g. `ghcr.io/<owner>/acme-shop-compose-postgres`.
-Another registry takes the `registry` input and the `REGISTRY_USERNAME` and `REGISTRY_TOKEN` secrets.
+Another registry takes the `registry` input, the `REGISTRY_USERNAME` variable, and the `REGISTRY_TOKEN` secret.
 `image.yaml` builds the images. Stages sharing a Dockerfile build in two waves on one cache.
 Take a look at the [releases](../releases.md) for what a release includes and in which order.
 
@@ -39,7 +39,7 @@ Every release tag can also go to a second registry, e.g. Docker Hub:
 ```sh
 gh variable set MIRROR_REGISTRY --body docker.io
 gh variable set MIRROR_NAMESPACE --body acme
-gh secret set MIRROR_REGISTRY_USERNAME --body acme
+gh variable set MIRROR_REGISTRY_USERNAME --body acme
 gh secret set MIRROR_REGISTRY_TOKEN
 ```
 

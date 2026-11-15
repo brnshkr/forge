@@ -134,16 +134,8 @@ on:
         description: Packagist API token
         required: false
 
-      MIRROR_REGISTRY_USERNAME:
-        description: Username on the mirror registry
-        required: false
-
       MIRROR_REGISTRY_TOKEN:
         description: Token on the mirror registry; without it, nothing is mirrored
-        required: false
-
-      REGISTRY_USERNAME:
-        description: Registry username, defaults to the user that started the run
         required: false
 
       REGISTRY_TOKEN:
@@ -223,7 +215,5 @@ jobs:
       NPM_CONFIG_TOKEN: ${{ secrets.NPM_CONFIG_TOKEN }}
       PACKAGIST_TOKEN: ${{ secrets.PACKAGIST_TOKEN }}
       MIRROR_REGISTRY_TOKEN: ${{ secrets.MIRROR_REGISTRY_TOKEN }}
-      MIRROR_REGISTRY_USERNAME: ${{ secrets.MIRROR_REGISTRY_USERNAME }}
       PACKAGIST_USERNAME: ${{ secrets.PACKAGIST_USERNAME }}
       REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
-      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}

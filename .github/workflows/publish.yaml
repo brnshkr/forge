@@ -112,16 +112,8 @@ on:
         description: Packagist API token
         required: false
 
-      MIRROR_REGISTRY_USERNAME:
-        description: Username on the mirror registry
-        required: false
-
       MIRROR_REGISTRY_TOKEN:
         description: Token on the mirror registry; without it, nothing is mirrored
-        required: false
-
-      REGISTRY_USERNAME:
-        description: Registry username, defaults to the user that started the run
         required: false
 
       REGISTRY_TOKEN:
@@ -305,7 +297,7 @@ jobs:
         uses: $/.github/actions/login
         with:
           registry: ${{ inputs.registry }}
-          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          username: ${{ vars.REGISTRY_USERNAME || github.actor }}
           password: ${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Push Image
@@ -371,7 +363,6 @@ jobs:
       namespace: ${{ inputs.namespace }}
     secrets:
       REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
-      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
 
   staging:
     name: Deploy ${{ matrix.target }}
@@ -399,7 +390,6 @@ jobs:
       namespace: ${{ inputs.namespace }}
     secrets:
       REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
-      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
 
   package-build:
     name: npm Package Build
@@ -581,7 +571,7 @@ jobs:
         uses: $/.github/actions/login
         with:
           registry: ${{ inputs.registry }}
-          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          username: ${{ vars.REGISTRY_USERNAME || github.actor }}
           password: ${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Log In To Mirror Registry
@@ -589,7 +579,7 @@ jobs:
         uses: $/.github/actions/login
         with:
           registry: ${{ inputs.mirror-registry }}
-          username: ${{ secrets.MIRROR_REGISTRY_USERNAME }}
+          username: ${{ vars.MIRROR_REGISTRY_USERNAME }}
           password: ${{ secrets.MIRROR_REGISTRY_TOKEN }}
 
       - name: Tag Image
@@ -672,7 +662,7 @@ jobs:
         uses: $/.github/actions/login
         with:
           registry: ${{ inputs.registry }}
-          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          username: ${{ vars.REGISTRY_USERNAME || github.actor }}
           password: ${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Log In To Mirror Registry
@@ -680,7 +670,7 @@ jobs:
         uses: $/.github/actions/login
         with:
           registry: ${{ inputs.mirror-registry }}
-          username: ${{ secrets.MIRROR_REGISTRY_USERNAME }}
+          username: ${{ vars.MIRROR_REGISTRY_USERNAME }}
           password: ${{ secrets.MIRROR_REGISTRY_TOKEN }}
 
       - name: Setup Toolchain
@@ -1165,7 +1155,6 @@ jobs:
       namespace: ${{ inputs.namespace }}
     secrets:
       REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
-      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
 
   pages:
     name: GitHub Pages
