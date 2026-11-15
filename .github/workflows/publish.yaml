@@ -112,16 +112,8 @@ on:
         description: Packagist API token
         required: false
 
-      MIRROR_REGISTRY_USERNAME:
-        description: Username on the mirror registry
-        required: false
-
       MIRROR_REGISTRY_TOKEN:
         description: Token on the mirror registry; without it, nothing is mirrored
-        required: false
-
-      REGISTRY_USERNAME:
-        description: Registry username, defaults to the user that started the run
         required: false
 
       REGISTRY_TOKEN:
@@ -298,13 +290,14 @@ jobs:
           dockerfile: ${{ matrix.dockerfile }}
           name: ${{ matrix.name }}
           tags: ${{ matrix.tags }}
+          arguments: ${{ matrix.arguments }}
           version: ${{ fromJSON(needs.targets.outputs.release).version }}
 
       - name: Log In To Registry
         uses: $/.github/actions/login
         with:
           registry: ${{ inputs.registry }}
-          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          username: ${{ vars.REGISTRY_USERNAME || github.actor }}
           password: ${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Push Image
@@ -324,6 +317,7 @@ jobs:
           outputs: >-
             type=image,name=${{ steps.metadata.outputs.repository }},push-by-digest=true,name-canonical=true,push=true
           labels: ${{ steps.metadata.outputs.labels }}
+          annotations: ${{ steps.metadata.outputs.annotations }}
           cache-from: type=gha,scope=${{ matrix.cache }}
           provenance: mode=max
           sbom: true
@@ -369,7 +363,6 @@ jobs:
       namespace: ${{ inputs.namespace }}
     secrets:
       REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
-      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
 
   staging:
     name: Deploy ${{ matrix.target }}
@@ -397,7 +390,6 @@ jobs:
       namespace: ${{ inputs.namespace }}
     secrets:
       REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
-      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
 
   package-build:
     name: npm Package Build
@@ -579,7 +571,7 @@ jobs:
         uses: $/.github/actions/login
         with:
           registry: ${{ inputs.registry }}
-          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          username: ${{ vars.REGISTRY_USERNAME || github.actor }}
           password: ${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Log In To Mirror Registry
@@ -587,7 +579,7 @@ jobs:
         uses: $/.github/actions/login
         with:
           registry: ${{ inputs.mirror-registry }}
-          username: ${{ secrets.MIRROR_REGISTRY_USERNAME }}
+          username: ${{ vars.MIRROR_REGISTRY_USERNAME }}
           password: ${{ secrets.MIRROR_REGISTRY_TOKEN }}
 
       - name: Tag Image
@@ -670,7 +662,7 @@ jobs:
         uses: $/.github/actions/login
         with:
           registry: ${{ inputs.registry }}
-          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          username: ${{ vars.REGISTRY_USERNAME || github.actor }}
           password: ${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Log In To Mirror Registry
@@ -678,7 +670,7 @@ jobs:
         uses: $/.github/actions/login
         with:
           registry: ${{ inputs.mirror-registry }}
-          username: ${{ secrets.MIRROR_REGISTRY_USERNAME }}
+          username: ${{ vars.MIRROR_REGISTRY_USERNAME }}
           password: ${{ secrets.MIRROR_REGISTRY_TOKEN }}
 
       - name: Setup Toolchain
@@ -704,6 +696,7 @@ jobs:
           fi
 
           tags=$(for tag in $TAGS; do printf '%s,' "${tag#v}"; done)
+          created=$(TZ=UTC0 git log -1 --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd)
 
           for file in $FRAGMENTS; do
             name=$(basename "$file" .yaml)
@@ -714,7 +707,8 @@ jobs:
 
             set -- "$name.yaml:application/vnd.docker.compose.file+yaml"
 
-            annotations="\"$name.yaml\": {\"com.docker.compose.file\": \"$name.yaml\"}"
+            annotations="\"\$manifest\": {\"org.opencontainers.image.created\": \"$created\"}"
+            annotations="$annotations, \"$name.yaml\": {\"com.docker.compose.file\": \"$name.yaml\"}"
 
             sed -n 's/^ *file: \.\/\(.*\)$/\1/p' "$file" | sort -u >"$RUNNER_TEMP/fragments/$name.extends"
 
@@ -729,7 +723,9 @@ jobs:
             printf '{%s}\n' "$annotations" >"$directory/annotations.json"
 
             for destination in $destinations; do
-              docker run --rm \
+              repository=$destination/$name_prefix-$name
+
+              digest=$(docker run --rm \
                 --user "$(id -u):$(id -g)" \
                 --volume "$directory:/work" \
                 --volume "$HOME/.docker/config.json:/auth/config.json:ro" \
@@ -738,10 +734,35 @@ jobs:
                 --registry-config /auth/config.json \
                 --artifact-type application/vnd.docker.compose.project \
                 --annotation-file annotations.json \
-                "$destination/$name_prefix-$name:${tags%,}" \
-                "$@"
+                --format json \
+                "$repository:${tags%,}" \
+                "$@" | jq -r .digest)
+
+              for tag in $TAGS; do
+                printf '%s %s:%s %s\n' "$name" "$repository" "${tag#v}" "$digest"
+              done >>"$RUNNER_TEMP/published.fragments"
             done
           done
+
+      - name: Record What Was Published
+        run: |
+          previous_name=''
+
+          while read -r name tag digest; do
+            if [ "$name" != "$previous_name" ]; then
+              echo
+              echo "## 📦 Published fragment $name"
+              echo
+              echo '| Tag | Digest |'
+              echo '| --- | --- |'
+              digest="\`$digest\`"
+              previous_name=$name
+            else
+              digest='〃'
+            fi
+
+            echo "| \`$tag\` | $digest |"
+          done <"$RUNNER_TEMP/published.fragments" >>"$GITHUB_STEP_SUMMARY"
 
   changelog-draft:
     name: Changelog Draft
@@ -1134,7 +1155,6 @@ jobs:
       namespace: ${{ inputs.namespace }}
     secrets:
       REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
-      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
 
   pages:
     name: GitHub Pages

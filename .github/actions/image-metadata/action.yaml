@@ -14,6 +14,11 @@ inputs:
     description: Tags of the image, one per line, e.g. `ghcr.io/acme/acme-shop:1.2.3`
     required: true
 
+  arguments:
+    description: Build arguments of the image, one `NAME=value` per line; `IMAGE_NAME` and `IMAGE_DESCRIPTION` annotate it
+    required: false
+    default: ''
+
   version:
     description: Version the image is labeled with, empty outside a release
     required: false
@@ -28,6 +33,10 @@ outputs:
     description: Labels of the image, one `key=value` per line
     value: ${{ steps.metadata.outputs.labels }}
 
+  annotations:
+    description: Annotations of the pushed index, one `index:key=value` per line, which registries such as GHCR show
+    value: ${{ steps.metadata.outputs.annotations }}
+
 runs:
   using: composite
   steps:
@@ -35,17 +44,16 @@ runs:
       id: metadata
       shell: bash
       env:
+        ARGUMENTS: ${{ inputs.arguments }}
         DOCKERFILE: ${{ inputs.dockerfile }}
         NAME: ${{ inputs.name }}
         TAGS: ${{ inputs.tags }}
         VERSION: ${{ inputs.version }}
       run: |
-        created=$(git log -1 --format=%cI)
+        created=$(TZ=UTC0 git log -1 --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd)
         first_tag=$(printf '%s\n' "$TAGS" | head -n 1)
 
-        {
-          echo "repository=${first_tag%:*}"
-          echo 'labels<<LABELS'
+        labels=$(
           echo "org.opencontainers.image.created=$created"
           echo "org.opencontainers.image.revision=$GITHUB_SHA"
 
@@ -82,6 +90,16 @@ runs:
               (.homepage // empty | "org.opencontainers.image.documentation=\(.)")
             ' "${manifest:-/dev/null}"
           fi
+        )
 
-          echo LABELS
+        argument_labels=$(printf '%s\n' "$ARGUMENTS" | sed -n \
+          -e 's/^IMAGE_NAME=/org.opencontainers.image.title=/p' \
+          -e 's/^IMAGE_DESCRIPTION=/org.opencontainers.image.description=/p')
+
+        {
+          echo "repository=${first_tag%:*}"
+          printf 'labels<<LABELS\n%s\nLABELS\n' "$labels"
+          echo 'annotations<<ANNOTATIONS'
+          printf '%s\n' "$labels" "$argument_labels" | awk -F = 'NF > 1 && !seen[$1]++ { print "index:" $0 }'
+          echo ANNOTATIONS
         } >>"$GITHUB_OUTPUT"
