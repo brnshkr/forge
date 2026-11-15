@@ -205,7 +205,7 @@ jobs:
       mirror-namespace: ${{ inputs.mirror-namespace || vars.MIRROR_NAMESPACE }}
       skip: ${{ inputs.skip || '[]' }}
       deploy-targets: ${{ inputs.deploy-targets || '[]' }}
-      group-image-builds: ${{ inputs.group-image-builds != false }}
+      group-image-builds: ${{ inputs.group-image-builds == null || inputs.group-image-builds }}
       install-command: ${{ inputs.install-command }}
       build-command: ${{ inputs.build-command }}
       changelog-notes-command: >-
