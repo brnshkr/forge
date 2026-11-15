@@ -733,7 +733,7 @@ jobs:
             printf '{%s}\n' "$annotations" >"$directory/annotations.json"
 
             for destination in $destinations; do
-              reference=$destination/$name_prefix-$name:${tags%,}
+              repository=$destination/$name_prefix-$name
 
               digest=$(docker run --rm \
                 --user "$(id -u):$(id -g)" \
@@ -745,25 +745,34 @@ jobs:
                 --artifact-type application/vnd.docker.compose.project \
                 --annotation-file annotations.json \
                 --format json \
-                "$reference" \
+                "$repository:${tags%,}" \
                 "$@" | jq -r .digest)
 
-              printf '%s %s\n' "${reference%%,*}" "$digest" >>"$RUNNER_TEMP/published.fragments"
+              for tag in $TAGS; do
+                printf '%s %s:%s %s\n' "$name" "$repository" "${tag#v}" "$digest"
+              done >>"$RUNNER_TEMP/published.fragments"
             done
           done
 
       - name: Record What Was Published
         run: |
-          {
-            echo '## 📦 Published fragments'
-            echo
-            echo '| Fragment | Digest |'
-            echo '| --- | --- |'
+          previous_name=''
 
-            while read -r reference digest; do
-              echo "| \`$reference\` | \`$digest\` |"
-            done <"$RUNNER_TEMP/published.fragments"
-          } >>"$GITHUB_STEP_SUMMARY"
+          while read -r name tag digest; do
+            if [ "$name" != "$previous_name" ]; then
+              echo
+              echo "## 📦 Published fragment $name"
+              echo
+              echo '| Tag | Digest |'
+              echo '| --- | --- |'
+              digest="\`$digest\`"
+              previous_name=$name
+            else
+              digest='〃'
+            fi
+
+            echo "| \`$tag\` | $digest |"
+          done <"$RUNNER_TEMP/published.fragments" >>"$GITHUB_STEP_SUMMARY"
 
   changelog-draft:
     name: Changelog Draft
