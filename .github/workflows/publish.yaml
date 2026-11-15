@@ -706,6 +706,7 @@ jobs:
           fi
 
           tags=$(for tag in $TAGS; do printf '%s,' "${tag#v}"; done)
+          created=$(TZ=UTC0 git log -1 --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd)
 
           for file in $FRAGMENTS; do
             name=$(basename "$file" .yaml)
@@ -716,7 +717,8 @@ jobs:
 
             set -- "$name.yaml:application/vnd.docker.compose.file+yaml"
 
-            annotations="\"$name.yaml\": {\"com.docker.compose.file\": \"$name.yaml\"}"
+            annotations="\"\$manifest\": {\"org.opencontainers.image.created\": \"$created\"}"
+            annotations="$annotations, \"$name.yaml\": {\"com.docker.compose.file\": \"$name.yaml\"}"
 
             sed -n 's/^ *file: \.\/\(.*\)$/\1/p' "$file" | sort -u >"$RUNNER_TEMP/fragments/$name.extends"
 
@@ -731,7 +733,9 @@ jobs:
             printf '{%s}\n' "$annotations" >"$directory/annotations.json"
 
             for destination in $destinations; do
-              docker run --rm \
+              reference=$destination/$name_prefix-$name:${tags%,}
+
+              digest=$(docker run --rm \
                 --user "$(id -u):$(id -g)" \
                 --volume "$directory:/work" \
                 --volume "$HOME/.docker/config.json:/auth/config.json:ro" \
@@ -740,10 +744,26 @@ jobs:
                 --registry-config /auth/config.json \
                 --artifact-type application/vnd.docker.compose.project \
                 --annotation-file annotations.json \
-                "$destination/$name_prefix-$name:${tags%,}" \
-                "$@"
+                --format json \
+                "$reference" \
+                "$@" | jq -r .digest)
+
+              printf '%s %s\n' "${reference%%,*}" "$digest" >>"$RUNNER_TEMP/published.fragments"
             done
           done
+
+      - name: Record What Was Published
+        run: |
+          {
+            echo '## 📦 Published fragments'
+            echo
+            echo '| Fragment | Digest |'
+            echo '| --- | --- |'
+
+            while read -r reference digest; do
+              echo "| \`$reference\` | \`$digest\` |"
+            done <"$RUNNER_TEMP/published.fragments"
+          } >>"$GITHUB_STEP_SUMMARY"
 
   changelog-draft:
     name: Changelog Draft
