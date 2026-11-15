@@ -298,6 +298,7 @@ jobs:
           dockerfile: ${{ matrix.dockerfile }}
           name: ${{ matrix.name }}
           tags: ${{ matrix.tags }}
+          arguments: ${{ matrix.arguments }}
           version: ${{ fromJSON(needs.targets.outputs.release).version }}
 
       - name: Log In To Registry
@@ -324,6 +325,7 @@ jobs:
           outputs: >-
             type=image,name=${{ steps.metadata.outputs.repository }},push-by-digest=true,name-canonical=true,push=true
           labels: ${{ steps.metadata.outputs.labels }}
+          annotations: ${{ steps.metadata.outputs.annotations }}
           cache-from: type=gha,scope=${{ matrix.cache }}
           provenance: mode=max
           sbom: true
